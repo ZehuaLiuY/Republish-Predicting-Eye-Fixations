@@ -4,16 +4,18 @@ import torch.nn.functional as F
 
 class MrCNN(nn.Module):
     def __init__(self):
-        super(MrCNN, self).__init__()
+        super().__init__()
         ## Convolutional layers for each branch
         self.conv1 = nn.Conv2d(3, 96, kernel_size=7, stride=1, padding=0)
+        self.initialise_layer(self.conv1)
         self.conv2 = nn.Conv2d(96, 160, kernel_size=3, stride=1, padding=0)
+        self.initialise_layer(self.conv2)
         self.conv3 = nn.Conv2d(160, 288, kernel_size=3, stride=1, padding=0)
 
         ## layers for all branches
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
 
-        self.branch_fc = nn.Linear(3 * 3 * 288, 512)
+        self.branch_fc = nn.Linear(2592, 512)
 
         self.fc_combined = nn.Linear(512 * 3, 512)
 
@@ -21,12 +23,19 @@ class MrCNN(nn.Module):
 
     def forward_branch(self, x, conv1, conv2, conv3):
         x = F.relu(conv1(x))
+        # print(f'Shape after conv1: {x.shape}')
         x = self.pool(x)
+        # print(f'Shape after pool1: {x.shape}')
         x = F.relu(conv2(x))
+        # print(f'Shape after conv2: {x.shape}')
         x = self.pool(x)
+        # print(f'Shape after pool2: {x.shape}')
         x = F.relu(conv3(x))
+        # print(f'Shape after conv3: {x.shape}')
         x = self.pool(x)
+        # print(f'Shape after pool3: {x.shape}')
         x = x.view(x.size(0), -1)
+        # print(f'Shape after flatten: {x.shape}')
         x = F.sigmoid(self.branch_fc(x))
         return x
 
