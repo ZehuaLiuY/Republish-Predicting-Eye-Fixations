@@ -1,17 +1,12 @@
 #!/usr/bin/env python3
 import time
 from multiprocessing import cpu_count
-from sched import scheduler
 from typing import Union, NamedTuple
-import os
 import torch
 import torch.backends.cudnn
 import numpy as np
-from scipy.linalg import toeplitz
-from torch import nn, optim
-from torch.nn import functional as F
-import torchvision.datasets
-from torch.nn.functional import dropout
+from torch import nn
+from torch.optim import Adam
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -21,13 +16,14 @@ import argparse
 from pathlib import Path
 
 from src.MrCNN import MrCNN
+from src.metrics import calculate_auc
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = 'cpu'
 torch.backends.cudnn.benchmark = True
 
 parser = argparse.ArgumentParser(
-    description="Train a simple CNN on CIFAR-10",
+    description="Republish Predicting Eye Fixations",
     formatter_class=argparse.ArgumentDefaultsHelpFormatter,
 )
 default_dataset_dir = Path.home() / ".cache" / "torch" / "datasets"
@@ -42,13 +38,13 @@ parser.add_argument(
 )
 parser.add_argument(
     "--epochs",
-    default=20,
+    default=1,
     type=int,
     help="Number of epochs (passes through the entire dataset) to train for",
 )
 parser.add_argument(
     "--val-frequency",
-    default=2,
+    default=1,
     type=int,
     help="How frequently to test the model on the validation set in number of epochs",
 )
@@ -89,7 +85,8 @@ parser.add_argument(
 # checkpoints
 parser.add_argument(
     "--checkpoint-path",
-    type=Path,
+    default= Path("checkpoints"),
+    type=Path
 )
 
 parser.add_argument(
@@ -101,7 +98,8 @@ parser.add_argument(
 
 parser.add_argument(
     "--resume-checkpoint",
-    type = Path,
+    default= Path("checkpoints"),
+    type=Path
 )
 
 parser.add_argument(
@@ -109,14 +107,6 @@ parser.add_argument(
     type = int,
     default = 0,
 )
-
-# parser.add_argument(
-#     "--sgd-momentum",
-#     default = 0,
-#     type = float,
-# )
-
-
 
 class ImageShape(NamedTuple):
     height: int
@@ -146,20 +136,18 @@ def main(args):
     transform_test = transforms.ToTensor()
 
     args.dataset_root.mkdir(parents=True, exist_ok=True)
-    train_dataset = torchvision.datasets.CIFAR10(
-        args.dataset_root, train=True, download=True, transform=transform_train
-    )
-    test_dataset = torchvision.datasets.CIFAR10(
-        args.dataset_root, train=False, download=False, transform=transform_test
-    )
 
-    train_dataset_path = '../dataset/train_data.pth/data'
+    train_dataset_path = '../dataset/train_data.pth.tar'
     train_dataset = MIT(train_dataset_path)
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=4)
 
-    val_dataset_path = '../dataset/val_data.pth/data'
+    val_dataset_path = '../dataset/val_data.pth.tar'
     val_dataset = MIT(val_dataset_path)
     val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=4)
+
+    test_dataset_path = '../dataset/test_data.pth.tar'
+    test_dataset = MIT(test_dataset_path)
+    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=4)
 
     # TODO: some duplidate code here
     train_loader = torch.utils.data.DataLoader(
@@ -181,23 +169,19 @@ def main(args):
     # TODO: Change the parameters
     model = MrCNN()
 
-    # checkpoint model resume
-    if args.resume_checkpoint.exists():
-        start_dict = torch.load(args.resume_checkpoint)
-        print(f"Loading model from {args.resume_checkpoint} that achieved {start_dict['accuracy'] * 100:.2f}% accuracy")
-        model.load_state_dict(start_dict)
-    else:
-        print("Training from scratch")
 
-    ## TASK 8: Redefine the criterion to be softmax cross entropy
-    criterion = nn.CrossEntropyLoss()
+    # # checkpoint model resume
+    # if args.resume_checkpoint.exists():
+    #     start_dict = torch.load(args.resume_checkpoint)
+    #     print(f"Loading model from {args.resume_checkpoint} that achieved {start_dict['accuracy'] * 100:.2f}% accuracy")
+    #     model.load_state_dict(start_dict)
+    # else:
+    #     print("Training from scratch")
 
-    ## TASK 11: Define the optimizer
-    # optimizer = optim.SGD(model.parameters(), lr = args.learning_rate)
-    # Week 3 task: change the optimizer to Momentum
-    optimizer = optim.SGD(model.parameters(), lr = args.learning_rate, momentum = 0.9)
+    criterion = nn.BCELoss()
 
-    # Week 3 task: define a scheduler
+    optimizer = Adam(model.parameters(), lr=0.001)
+
     schedular = torch.optim.lr_scheduler.StepLR(optimizer, step_size = 20, gamma = 0.1)
 
     log_dir = get_summary_writer_log_dir(args)
@@ -251,7 +235,6 @@ class Trainer:
         self.checkpoint_frequency = checkpoint_frequency
         self.args = args
 
-
     def train(
             self,
             epochs: int,
@@ -265,34 +248,25 @@ class Trainer:
         for epoch in range(start_epoch, epochs):
             self.model.train()
             data_load_start_time = time.time()
-            for batch, labels in self.train_loader:
-                batch = batch.to(self.device)
-                labels = labels.to(self.device)
+            for batch in self.train_loader:
+                X,y = batch
+                X_400_crop = X[:, 0, :, :, :].to(device)
+                X_250_crop = X[:, 1, :, :, :].to(device)
+                X_150_crop = X[:, 2, :, :, :].to(device)
                 data_load_end_time = time.time()
 
+                output = self.model(X_400_crop, X_250_crop, X_150_crop)
 
-                ## TASK 1: Compute the forward pass of the model, print the output shape
-                ##         and quit the program
-                output = self.model(batch)
-
-                ## TASK 7: Rename `output` to `logits`, remove the output shape printing
-                ##         and get rid of the `import sys; sys.exit(1)`
                 logits = output
-                ## TASK 9: Compute the loss using self.criterion and
-                ##         store it in a variable called `loss`
-                # loss = torch.tensor(0)
-                loss = self.criterion(logits, labels)
 
-                ## TASK 10: Compute the backward pass
+                y = y.view(-1, 1).float().to(device)
+                loss = self.criterion(output, y)
                 loss.backward()
-
-                ## TASK 12: Step the optimizer and then zero out the gradient buffers.
                 self.optimizer.step()
                 self.optimizer.zero_grad()
-
                 with torch.no_grad():
                     preds = logits.argmax(-1)
-                    accuracy = compute_accuracy(labels, preds)
+                    accuracy = compute_accuracy(y, preds)
 
                 data_load_time = data_load_end_time - data_load_start_time
                 step_time = time.time() - data_load_end_time
@@ -304,7 +278,7 @@ class Trainer:
                 self.step += 1
 
                 data_load_start_time = time.time()
-
+            # print(f'Epoch {epoch + 1}, Loss: {loss.item()}')
             self.schedular.step()
             self.summary_writer.add_scalar("epoch", epoch, self.step)
 
@@ -313,15 +287,16 @@ class Trainer:
                 # self.validate() will put the model in validation mode,
                 # so we have to switch back to train mode afterwards
                 self.model.train()
-            if ((epoch + 1) % self.checkpoint_frequency) == 0 and self.checkpoint_path:
-                checkpoint_file = os.path.join(self.checkpoint_path, f"model_epoch_{epoch + 1}.pth")
-                torch.save({
-                    'args': args,
-                    'model': self.model.state_dict(),
-                    'accuracy': accuracy,
-                    'epoch': epoch,
-                }, checkpoint_file)
-                print(f"Checkpoint saved at {checkpoint_file}")
+            # if ((epoch + 1) % self.checkpoint_frequency) == 0 and self.checkpoint_path:
+            #     checkpoint_file = os.path.join(self.checkpoint_path, f"model_epoch_{epoch + 1}.pth")
+            #     # torch.save({
+            #     #     'args': args,
+            #     #     'model': self.model.state_dict(),
+            #     #     'accuracy': accuracy,
+            #     #     'epoch': epoch,
+            #     # }, checkpoint_file)
+            #     torch.save(self.model.state_dict(), checkpoint_file)
+            #     print(f"Checkpoint saved at {checkpoint_file}")
 
     def print_metrics(self, epoch, accuracy, loss, data_load_time, step_time):
         epoch_step = self.step % len(self.train_loader)
@@ -329,7 +304,7 @@ class Trainer:
             f"epoch: [{epoch}], "
             f"step: [{epoch_step}/{len(self.train_loader)}], "
             f"batch loss: {loss:.5f}, "
-            f"batch accuracy: {accuracy * 100:2.2f}, "
+            f"batch accuracy: {accuracy :2.2f}, "
             f"data load time: "
             f"{data_load_time:.5f}, "
             f"step time: {step_time:.5f}"
@@ -355,34 +330,35 @@ class Trainer:
         )
 
     def validate(self):
-        results = {"preds": [], "labels": []}
+
         total_loss = 0
         self.model.eval()
+        # Used to store the prediction results and targets of each sample, with the key being the image identifier
+        preds_dict = {}
+        targets_dict = {}
 
         # No need to track gradients for validation, we're not optimizing.
         with torch.no_grad():
-            for batch, labels in self.val_loader:
-                batch = batch.to(self.device)
-                labels = labels.to(self.device)
-                logits = self.model(batch)
-                loss = self.criterion(logits, labels)
+            for i, batch in enumerate(self.val_loader):
+                X, y = batch
+                X_400_crop = X[:, 0, :, :, :].to(device)
+                X_250_crop = X[:, 1, :, :, :].to(device)
+                X_150_crop = X[:, 2, :, :, :].to(device)
+
+                output = self.model(X_400_crop, X_250_crop, X_150_crop)
+                logits = output
+                y = torch.where(y == -1, torch.tensor(0), torch.tensor(1))
+                y = y.view(-1, 1).float().to(device)
+                # print(y)
+                loss = self.criterion(logits, y)
                 total_loss += loss.item()
-                preds = logits.argmax(dim=-1).cpu().numpy()
-                results["preds"].extend(list(preds))
-                results["labels"].extend(list(labels.cpu().numpy()))
 
-        accuracy = compute_accuracy(
-            np.array(results["labels"]), np.array(results["preds"])
-        )
+                # Convert the predictions and labels into numpy arrays and store them in a dictionary
+                preds_dict[i] = logits.cpu().numpy()
+                targets_dict[i] = y.cpu().numpy()
+
+        accuracy = calculate_auc(preds_dict, targets_dict)
         average_loss = total_loss / len(self.val_loader)
-
-        # Week 4: calculate per class accuracy
-        per_class_accuracy = compute_per_class_accuracy(
-            np.array(results["labels"]), np.array(results["preds"]), num_classes=self.model.class_count,
-        )
-        for class_idx, acc in enumerate(per_class_accuracy):
-            print(f"Class {class_idx}: Accuracy: {acc * 100:.2f}%")
-
 
         self.summary_writer.add_scalars(
             "accuracy",
@@ -394,7 +370,7 @@ class Trainer:
             {"test": average_loss},
             self.step
         )
-        print(f"validation loss: {average_loss:.5f}, accuracy: {accuracy * 100:2.2f}")
+        print(f"validation loss: {average_loss:.5f}, accuracy: {accuracy :2.2f}")
 
 def compute_per_class_accuracy(labels, preds, num_classes):
     correct_class = torch.zeros(num_classes)
