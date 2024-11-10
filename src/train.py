@@ -4,7 +4,6 @@ from multiprocessing import cpu_count
 from typing import Union, NamedTuple
 import torch
 import torch.backends.cudnn
-import numpy as np
 from torch import nn
 from torch.optim import Adam
 from torch.optim.optimizer import Optimizer
@@ -14,12 +13,11 @@ from torchvision import transforms
 from dataset import MIT
 import argparse
 from pathlib import Path
-
 from src.MrCNN import MrCNN
 from src.metrics import calculate_auc
 
-# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-device = 'cpu'
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = 'cpu'
 torch.backends.cudnn.benchmark = True
 
 parser = argparse.ArgumentParser(
@@ -27,7 +25,7 @@ parser = argparse.ArgumentParser(
     formatter_class=argparse.ArgumentDefaultsHelpFormatter,
 )
 default_dataset_dir = Path.home() / ".cache" / "torch" / "datasets"
-parser.add_argument("--dataset-root", default=default_dataset_dir)
+
 parser.add_argument("--log-dir", default=Path("logs"), type=Path)
 parser.add_argument("--learning-rate", default=1e-2, type=float, help="Learning rate")
 parser.add_argument(
@@ -113,13 +111,6 @@ class ImageShape(NamedTuple):
     width: int
     channels: int
 
-
-if torch.cuda.is_available():
-    DEVICE = torch.device("cuda")
-else:
-    DEVICE = torch.device("cpu")
-
-
 def main(args):
     transform_train_list = []
 
@@ -135,7 +126,6 @@ def main(args):
 
     transform_test = transforms.ToTensor()
 
-    args.dataset_root.mkdir(parents=True, exist_ok=True)
 
     train_dataset_path = '../dataset/train_data.pth.tar'
     train_dataset = MIT(train_dataset_path)
@@ -143,11 +133,11 @@ def main(args):
 
     val_dataset_path = '../dataset/val_data.pth.tar'
     val_dataset = MIT(val_dataset_path)
-    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=4)
+    # val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=4)
 
     test_dataset_path = '../dataset/test_data.pth.tar'
     test_dataset = MIT(test_dataset_path)
-    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=4)
+    # test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=4)
 
     # TODO: some duplidate code here
     train_loader = torch.utils.data.DataLoader(
@@ -159,6 +149,13 @@ def main(args):
     )
     test_loader = torch.utils.data.DataLoader(
         test_dataset,
+        shuffle=False,
+        batch_size=args.batch_size,
+        num_workers=args.worker_count,
+        pin_memory=True,
+    )
+    val_loader = DataLoader(
+        val_dataset,
         shuffle=False,
         batch_size=args.batch_size,
         num_workers=args.worker_count,
@@ -191,7 +188,7 @@ def main(args):
         flush_secs=5
     )
     trainer = Trainer(
-        model, train_loader, test_loader, criterion, optimizer, summary_writer, DEVICE, schedular,
+        model, train_loader, val_loader, criterion, optimizer, summary_writer, device, schedular,
         checkpoint_path = args.checkpoint_path,
         checkpoint_frequency = args.checkpoint_frequency,
         args = args
@@ -248,6 +245,8 @@ class Trainer:
         for epoch in range(start_epoch, epochs):
             self.model.train()
             data_load_start_time = time.time()
+            total_loss = 0
+
             for batch in self.train_loader:
                 X,y = batch
                 X_400_crop = X[:, 0, :, :, :].to(device)
@@ -256,17 +255,16 @@ class Trainer:
                 data_load_end_time = time.time()
 
                 output = self.model(X_400_crop, X_250_crop, X_150_crop)
-
-                logits = output
-
                 y = y.view(-1, 1).float().to(device)
                 loss = self.criterion(output, y)
+                total_loss += loss.item()
                 loss.backward()
+
                 self.optimizer.step()
                 self.optimizer.zero_grad()
                 with torch.no_grad():
-                    preds = logits.argmax(-1)
-                    accuracy = compute_accuracy(y, preds)
+                    preds = output
+                    accuracy = get_accuracy(preds,y)
 
                 data_load_time = data_load_end_time - data_load_start_time
                 step_time = time.time() - data_load_end_time
@@ -279,6 +277,8 @@ class Trainer:
 
                 data_load_start_time = time.time()
             # print(f'Epoch {epoch + 1}, Loss: {loss.item()}')
+            # Average validation loss and accuracy
+            # avg_val_loss = loss / len(self.val_loader)
             self.schedular.step()
             self.summary_writer.add_scalar("epoch", epoch, self.step)
 
@@ -329,70 +329,26 @@ class Trainer:
             "time/data", step_time, self.step
         )
 
+    # TODO: Implement the validate method
     def validate(self):
-
-        total_loss = 0
+        preds = {}
         self.model.eval()
-        # Used to store the prediction results and targets of each sample, with the key being the image identifier
-        preds_dict = {}
-        targets_dict = {}
-
-        # No need to track gradients for validation, we're not optimizing.
         with torch.no_grad():
             for i, batch in enumerate(self.val_loader):
-                X, y = batch
+                X, _ = batch  # no ground truth
                 X_400_crop = X[:, 0, :, :, :].to(device)
                 X_250_crop = X[:, 1, :, :, :].to(device)
                 X_150_crop = X[:, 2, :, :, :].to(device)
 
                 output = self.model(X_400_crop, X_250_crop, X_150_crop)
-                logits = output
-                y = torch.where(y == -1, torch.tensor(0), torch.tensor(1))
-                y = y.view(-1, 1).float().to(device)
-                # print(y)
-                loss = self.criterion(logits, y)
-                total_loss += loss.item()
+                preds[i] = output.squeeze().cpu().numpy()
 
-                # Convert the predictions and labels into numpy arrays and store them in a dictionary
-                preds_dict[i] = logits.cpu().numpy()
-                targets_dict[i] = y.cpu().numpy()
 
-        accuracy = calculate_auc(preds_dict, targets_dict)
-        average_loss = total_loss / len(self.val_loader)
 
-        self.summary_writer.add_scalars(
-            "accuracy",
-            {"test": accuracy},
-            self.step
-        )
-        self.summary_writer.add_scalars(
-            "loss",
-            {"test": average_loss},
-            self.step
-        )
-        print(f"validation loss: {average_loss:.5f}, accuracy: {accuracy :2.2f}")
-
-def compute_per_class_accuracy(labels, preds, num_classes):
-    correct_class = torch.zeros(num_classes)
-    total_class = torch.zeros(num_classes)
-
-    for label, pred in zip(labels, preds):
-        if label == pred:
-            correct_class[label] += 1
-        total_class[label] += 1
-
-    return correct_class / total_class
-
-def compute_accuracy(
-        labels: Union[torch.Tensor, np.ndarray], preds: Union[torch.Tensor, np.ndarray]
-) -> float:
-    """
-    Args:
-        labels: ``(batch_size, class_count)`` tensor or array containing example labels
-        preds: ``(batch_size, class_count)`` tensor or array containing model prediction
-    """
-    assert len(labels) == len(preds)
-    return float((labels == preds).sum()) / len(labels)
+def get_accuracy (preds, y):
+    assert len(preds) == len(y)
+    preds = (preds > 0.5).float()
+    return float((y == preds).sum().item() / len(y))
 
 
 def get_summary_writer_log_dir(args: argparse.Namespace) -> str:
@@ -407,12 +363,8 @@ def get_summary_writer_log_dir(args: argparse.Namespace) -> str:
         from getting logged to the same TB log directory (which you can't easily
         untangle in TB).
     """
-    # tb_log_dir_prefix = f'CNN_bs={args.batch_size}_lr={args.learning_rate}_run_'
-    # tb_log_dir_prefix = f'CNN_bn_bs={args.batch_size}_lr={args.learning_rate}_run_'
-    # tb_log_dir_prefix = f'CNN_bn_bs={args.batch_size}_lr={args.learning_rate}_momentum=0.9_run_'
-    # tb_log_dir_prefix = f'CNN_bn_bs={args.batch_size}_lr={args.learning_rate}_momentum=0.9_scheduler_run_'
     tb_log_dir_prefix =(
-            f"CNN_bn_"
+            f"Mr-CNN"
             f"dropout={args.dropout}_"
             f"bs={args.batch_size}_"
             f"lr={args.learning_rate}_"
