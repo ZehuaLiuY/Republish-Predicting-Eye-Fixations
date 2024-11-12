@@ -37,7 +37,7 @@ def main(args):
 
     # MrCNN model
     model = MrCNN()
-    state_dict = torch.load(args.model_path, weights_only=True)
+    state_dict = torch.load(args.model_path, weights_only=True, map_location='cpu')
     model.load_state_dict(state_dict)
     validate(model, test_dataset)
 

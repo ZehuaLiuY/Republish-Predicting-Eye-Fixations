@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.integrate import simps
 import random
+from skimage.transform import resize
 
 
 def roc_auc(pred, target, n_points=20, include_prior=False):
@@ -47,12 +48,19 @@ def calculate_roc_with_shuffle(preds, targets):
     assert preds.keys() == targets.keys()
 
     keys = list(preds.keys())
-    random.shuffle(keys)
 
     mean_auc = 0
     for key in keys:
         shuffled_pred = preds[key]
-        shuffled_target = targets[key]
+
+        # Randomly select a different target as the "shuffled" target
+        random_target_key = random.choice([k for k in keys if k != key])
+        shuffled_target = targets[random_target_key]
+        # Check shape and adjust
+        if shuffled_pred.shape != shuffled_target.shape:
+
+            shuffled_target = resize(shuffled_target, shuffled_pred.shape, anti_aliasing=True)
+
         mean_auc += roc_auc(shuffled_pred, shuffled_target)
 
     mean_auc /= len(preds.keys())
