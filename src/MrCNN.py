@@ -46,8 +46,10 @@ class MrCNN(nn.Module):
         x = F.relu(conv3(x))
         x = self.droupout(x)
         x = self.pool(x)
-        x = x.view(x.size(0), -1)
+        # print(f'before view x.shape: {x.shape}')
+        x = torch.flatten(x, start_dim=1)
         x = F.relu(self.branch_fc(x))
+        # print(f'after view x.shape: {x.shape}')
         # add dropout layer after the FC layer
         x = self.droupout(x)
         return x
