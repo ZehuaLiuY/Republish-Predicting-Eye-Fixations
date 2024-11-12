@@ -4,6 +4,8 @@ import torch
 from torch.utils import data
 from torch import Tensor
 from typing import Tuple
+from pathlib import Path
+import shutil
 
 def crop_to_region(coords: Tuple[int], img: Tensor, crop_size: int=42) -> Tensor:
     """ 
@@ -115,3 +117,67 @@ class MIT(data.Dataset):
             crops.
         """
         return len(self.dataset) * self.num_crops
+
+
+    def __getfile__(self, index):
+        """
+        Given the index from the DataLoader, return the image crop(s) and label
+        Args:
+            index (int): the dataset index provided by the PyTorch DataLoader.
+        Returns:
+            Tuple[Tensor, int]: A two-element tuple consisting of: 
+                1) img (Tensor): The image crop of shape [3, 3, 42, 42]. The 
+                first dim represents the crop across each different scale
+                (400x400, 250x250, 150x150), the second dim is the colour
+                channels C, followed by H and W (42x42).
+                2) label (int): The label for this crop. 1 = a fixation point, 
+                0 = a non-fixation point. -1 = Unlabelled i.e. val and test.
+        """
+        sample_index = index // self.num_crops
+        
+        
+
+        # print all key in self.dataset[sample_index] dictionary
+        # for key in self.dataset[sample_index]:
+        #     print(key)
+
+        img_filename = self.dataset[sample_index]['file'].split('.')[0]
+
+        img = self.dataset[sample_index]['X']
+        _, H, W = img.shape
+
+        return {"file": img_filename, "img": img, "H": H, "W": W}
+
+
+def load_ground_truth(dataset: MIT, img_dataset_path: str, target_folder_path: str):
+    """
+    Given the dataset and the path to the image dataset, load the ground truth
+    fixation maps and save them to the target folder path.
+
+    Args:
+        dataset (MIT): The dataset object.
+        img_dataset_path (str): The path to the image dataset.
+        target_folder_path (str): The path to save the ground truth fixation maps.
+    """
+
+    if dataset is not None and dataset.__len__() > 0:
+        index_list = list(range(0, dataset.__len__(), 2500))
+        for index in index_list:
+            file  = dataset.__getfile__(index)
+            filename = file['file'] + "_fixMap.jpg"
+            # if do not exist test_ground_truth, then create the folder
+            if not Path(target_folder_path).exists():
+                Path(target_folder_path).mkdir(parents=True, exist_ok=True)
+            
+            # if img_dataset_path folder not exists, then raise the error
+            if not Path(img_dataset_path).exists():
+                raise FileNotFoundError(f"Path {img_dataset_path} not found")
+
+            # search the filename in the ALLFIXATIONMAPS folder, if it exists, then copy this image file
+            if Path(f"{img_dataset_path}/{filename}").exists():
+                shutil.copy(f"{img_dataset_path}/{filename}", f"{target_folder_path}/{filename}")
+            else:
+                # if not exists, then raise an warning
+                print(f"File {filename} not found in {img_dataset_path}")
+    
+

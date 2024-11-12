@@ -28,8 +28,10 @@ def roc_auc(pred, target, n_points=20, include_prior=False):
 
 def calculate_auc(preds, targets):
 	"""
-	inputs -- 2 dictionary with prediction and target images. The 2 dictionaries have the  same number of keys, where each key identifies an unique image. 
-	The predictions have the predicted fixation maps while the targets have the ground truth fixation maps which are available from "https://people.csail.mit.edu/tjudd/WherePeopleLook/" 
+	inputs -- 2 dictionary with prediction and target images. The 2 dictionaries have the  same number of keys,
+	where each key identifies an unique image.
+	The predictions have the predicted fixation maps while the targets have the ground truth fixation maps
+	which are available from "https://people.csail.mit.edu/tjudd/WherePeopleLook/"
 	"""
 	assert preds.keys() == targets.keys()
 	mean_auc = 0

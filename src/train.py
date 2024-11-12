@@ -1,37 +1,34 @@
 #!/usr/bin/env python3
+import os
 import time
 from multiprocessing import cpu_count
-from sched import scheduler
 from typing import Union, NamedTuple
-import os
 import torch
 import torch.backends.cudnn
-import numpy as np
-from scipy.linalg import toeplitz
-from torch import nn, optim
-from torch.nn import functional as F
-import torchvision.datasets
-from torch.nn.functional import dropout
+from torch import nn
+from torch.optim import Adam
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from torchvision import transforms
-from dataset import MIT
+from dataset import MIT, load_ground_truth
 import argparse
 from pathlib import Path
-
-from src.MrCNN import MrCNN
+from MrCNN import MrCNN
+from metrics import calculate_auc
+import matplotlib.pyplot as plt
+import torch.nn.functional as F
+from tqdm import tqdm
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+# device = 'cpu'
 torch.backends.cudnn.benchmark = True
 
 parser = argparse.ArgumentParser(
-    description="Train a simple CNN on CIFAR-10",
+    description="Republish Predicting Eye Fixations",
     formatter_class=argparse.ArgumentDefaultsHelpFormatter,
 )
 default_dataset_dir = Path.home() / ".cache" / "torch" / "datasets"
-parser.add_argument("--dataset-root", default=default_dataset_dir)
+
 parser.add_argument("--log-dir", default=Path("logs"), type=Path)
 parser.add_argument("--learning-rate", default=1e-2, type=float, help="Learning rate")
 parser.add_argument(
@@ -42,13 +39,13 @@ parser.add_argument(
 )
 parser.add_argument(
     "--epochs",
-    default=20,
+    default=10,
     type=int,
     help="Number of epochs (passes through the entire dataset) to train for",
 )
 parser.add_argument(
     "--val-frequency",
-    default=2,
+    default=1,
     type=int,
     help="How frequently to test the model on the validation set in number of epochs",
 )
@@ -71,145 +68,56 @@ parser.add_argument(
     type=int,
     help="Number of worker processes used to load data.",
 )
-parser.add_argument(
-    "--data-aug-hflip",
-    action = "store_true",
-)
-parser.add_argument(
-    "--data-aug-brightness",
-    default=0,
-    type=float
-)
+
 parser.add_argument(
     "--dropout",
     default=0,
     type=float,
 )
 
-# checkpoints
-parser.add_argument(
-    "--checkpoint-path",
-    type=Path,
-)
-
 parser.add_argument(
     "--checkpoint-frequency",
     type=int,
-    default = 1,
+    default = 5,
     help="Save a checkpoint every N epochs"
 )
 
-parser.add_argument(
-    "--resume-checkpoint",
-    type = Path,
-)
-
-parser.add_argument(
-    "--start-epoch",
-    type = int,
-    default = 0,
-)
-
-# parser.add_argument(
-#     "--sgd-momentum",
-#     default = 0,
-#     type = float,
-# )
-
-
-
-class ImageShape(NamedTuple):
-    height: int
-    width: int
-    channels: int
-
-
-if torch.cuda.is_available():
-    DEVICE = torch.device("cuda")
-else:
-    DEVICE = torch.device("cpu")
-
-
 def main(args):
-    transform_train_list = []
-
-    if args.data_aug_hflip:
-        transform_train_list.append(transforms.RandomHorizontalFlip())
-
-    if args.data_aug_brightness > 0:
-        transform_train_list.append(transforms.ColorJitter(brightness=args.data_aug_brightness))
-
-    # Only apply data augmentation to the training data
-    transform_train_list.append(transforms.ToTensor())
-    transform_train = transforms.Compose(transform_train_list)
-
-    transform_test = transforms.ToTensor()
-
-    args.dataset_root.mkdir(parents=True, exist_ok=True)
-    train_dataset = torchvision.datasets.CIFAR10(
-        args.dataset_root, train=True, download=True, transform=transform_train
-    )
-    test_dataset = torchvision.datasets.CIFAR10(
-        args.dataset_root, train=False, download=False, transform=transform_test
-    )
-
-    train_dataset_path = '../dataset/train_data.pth/data'
+    train_dataset_path = '../dataset/train_data.pth.tar'
     train_dataset = MIT(train_dataset_path)
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=4)
 
-    val_dataset_path = '../dataset/val_data.pth/data'
+    val_dataset_path = '../dataset/val_data.pth.tar'
     val_dataset = MIT(val_dataset_path)
-    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=4)
 
-    # TODO: some duplidate code here
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset,
-        shuffle=True,
-        batch_size=args.batch_size,
-        pin_memory=True,
-        num_workers=args.worker_count,
-    )
-    test_loader = torch.utils.data.DataLoader(
-        test_dataset,
-        shuffle=False,
-        batch_size=args.batch_size,
-        num_workers=args.worker_count,
-        pin_memory=True,
-    )
+    val_ground_truth_path = '../dataset/val_ground_truth'
+    if not Path(val_ground_truth_path).exists():
+        load_ground_truth(dataset=val_dataset, img_dataset_path='../dataset/ALLFIXATIONMAPS', target_folder_path=val_ground_truth_path)
 
     # MrCNN model
     # TODO: Change the parameters
     model = MrCNN()
 
-    # checkpoint model resume
-    if args.resume_checkpoint.exists():
-        start_dict = torch.load(args.resume_checkpoint)
-        print(f"Loading model from {args.resume_checkpoint} that achieved {start_dict['accuracy'] * 100:.2f}% accuracy")
-        model.load_state_dict(start_dict)
-    else:
-        print("Training from scratch")
+    criterion = nn.BCELoss()
 
-    ## TASK 8: Redefine the criterion to be softmax cross entropy
-    criterion = nn.CrossEntropyLoss()
+    optimizer = Adam(model.parameters(), lr=0.001)
 
-    ## TASK 11: Define the optimizer
-    # optimizer = optim.SGD(model.parameters(), lr = args.learning_rate)
-    # Week 3 task: change the optimizer to Momentum
-    optimizer = optim.SGD(model.parameters(), lr = args.learning_rate, momentum = 0.9)
-
-    # Week 3 task: define a scheduler
     schedular = torch.optim.lr_scheduler.StepLR(optimizer, step_size = 20, gamma = 0.1)
 
     log_dir = get_summary_writer_log_dir(args)
     print(f"Writing logs to {log_dir}")
+
     summary_writer = SummaryWriter(
         str(log_dir),
         flush_secs=5
     )
+    checkpoint_path = f'./checkpoint/run_{log_dir.split("_")[-1]}'
+    if not Path(checkpoint_path).exists():
+        Path(checkpoint_path).mkdir(parents=True, exist_ok=True)
+
     trainer = Trainer(
-        model, train_loader, test_loader, criterion, optimizer, summary_writer, DEVICE, schedular,
-        checkpoint_path = args.checkpoint_path,
-        checkpoint_frequency = args.checkpoint_frequency,
+        model, train_dataset, val_dataset, criterion, optimizer, summary_writer, device, schedular,
+        checkpoint_path = checkpoint_path,
+        checkpoint_frequency= args.checkpoint_frequency,
         args = args
     )
 
@@ -227,21 +135,21 @@ class Trainer:
     def __init__(
             self,
             model: nn.Module,
-            train_loader: DataLoader,
-            val_loader: DataLoader,
+            train_dataset: MIT,
+            val_dataset: MIT,
             criterion: nn.Module,
             optimizer: Optimizer,
             summary_writer: SummaryWriter,
             device: torch.device,
             schedular: torch.optim.lr_scheduler.StepLR,
-            checkpoint_path: Path,
+            checkpoint_path: str,
             checkpoint_frequency: int,
             args
     ):
         self.model = model.to(device)
         self.device = device
-        self.train_loader = train_loader
-        self.val_loader = val_loader
+        self.train_dataset = train_dataset
+        self.val_dataset = val_dataset
         self.criterion = criterion
         self.optimizer = optimizer
         self.summary_writer = summary_writer
@@ -250,7 +158,13 @@ class Trainer:
         self.checkpoint_path = checkpoint_path
         self.checkpoint_frequency = checkpoint_frequency
         self.args = args
-
+        self.train_loader = DataLoader(
+            self.train_dataset,
+            shuffle=True,
+            batch_size=args.batch_size,
+            pin_memory=True,
+            num_workers=args.worker_count,
+        )
 
     def train(
             self,
@@ -262,37 +176,29 @@ class Trainer:
             args = None
     ):
         self.model.train()
+        best_auc = 0
         for epoch in range(start_epoch, epochs):
             self.model.train()
             data_load_start_time = time.time()
-            for batch, labels in self.train_loader:
-                batch = batch.to(self.device)
-                labels = labels.to(self.device)
+            total_loss = 0
+            for batch in self.train_loader:
+                img,label = batch
+                img_400_crop = img[:, 0, :, :, :].to(device)
+                img_250_crop = img[:, 1, :, :, :].to(device)
+                img_150_crop = img[:, 2, :, :, :].to(device)
                 data_load_end_time = time.time()
 
-
-                ## TASK 1: Compute the forward pass of the model, print the output shape
-                ##         and quit the program
-                output = self.model(batch)
-
-                ## TASK 7: Rename `output` to `logits`, remove the output shape printing
-                ##         and get rid of the `import sys; sys.exit(1)`
-                logits = output
-                ## TASK 9: Compute the loss using self.criterion and
-                ##         store it in a variable called `loss`
-                # loss = torch.tensor(0)
-                loss = self.criterion(logits, labels)
-
-                ## TASK 10: Compute the backward pass
+                output = self.model(img_400_crop, img_250_crop, img_150_crop)
+                label = label.view(-1, 1).float().to(device)
+                loss = self.criterion(output, label)
+                total_loss += loss.item()
                 loss.backward()
 
-                ## TASK 12: Step the optimizer and then zero out the gradient buffers.
                 self.optimizer.step()
                 self.optimizer.zero_grad()
-
                 with torch.no_grad():
-                    preds = logits.argmax(-1)
-                    accuracy = compute_accuracy(labels, preds)
+                    preds = output
+                    accuracy = get_accuracy(preds,label)
 
                 data_load_time = data_load_end_time - data_load_start_time
                 step_time = time.time() - data_load_end_time
@@ -304,21 +210,39 @@ class Trainer:
                 self.step += 1
 
                 data_load_start_time = time.time()
-
+            # print(f'Epoch {epoch + 1}, Loss: {loss.item()}')
+            # Average validation loss and accuracy
+            # avg_val_loss = loss / len(self.val_loader)
             self.schedular.step()
             self.summary_writer.add_scalar("epoch", epoch, self.step)
 
             if ((epoch + 1) % val_frequency) == 0:
-                self.validate()
+                self.model.eval()
+                auc = self.validate()
+                print(f"Epoch {epoch} validation AUC score {auc}")
                 # self.validate() will put the model in validation mode,
                 # so we have to switch back to train mode afterwards
-                self.model.train()
-            if ((epoch + 1) % self.checkpoint_frequency) == 0 and self.checkpoint_path:
-                checkpoint_file = os.path.join(self.checkpoint_path, f"model_epoch_{epoch + 1}.pth")
+                # self.model.train()
+                if auc > best_auc:
+                    best_auc = auc
+                    checkpoint_file = os.path.join(self.checkpoint_path, f"best_model.pth")
+                    torch.save(self.model.state_dict(), checkpoint_file)
+
+
+            if ((epoch + 1) % self.checkpoint_frequency) == 0:
+                checkpoint_file = os.path.join(self.checkpoint_path, f"model_epoch_{epoch}.pth")
                 torch.save({
                     'args': args,
                     'model': self.model.state_dict(),
-                    'accuracy': accuracy,
+                    'epoch': epoch,
+                }, checkpoint_file)
+                print(f"Checkpoint saved at {checkpoint_file}")
+
+            if (epoch + 1) == epochs:
+                checkpoint_file = os.path.join(self.checkpoint_path, f"final_model.pth")
+                torch.save({
+                    'args': args,
+                    'model': self.model.state_dict(),
                     'epoch': epoch,
                 }, checkpoint_file)
                 print(f"Checkpoint saved at {checkpoint_file}")
@@ -329,7 +253,7 @@ class Trainer:
             f"epoch: [{epoch}], "
             f"step: [{epoch_step}/{len(self.train_loader)}], "
             f"batch loss: {loss:.5f}, "
-            f"batch accuracy: {accuracy * 100:2.2f}, "
+            f"batch accuracy: {accuracy :2.2f}, "
             f"data load time: "
             f"{data_load_time:.5f}, "
             f"step time: {step_time:.5f}"
@@ -354,69 +278,56 @@ class Trainer:
             "time/data", step_time, self.step
         )
 
+    # TODO: Implement the validate method
     def validate(self):
-        results = {"preds": [], "labels": []}
-        total_loss = 0
-        self.model.eval()
-
-        # No need to track gradients for validation, we're not optimizing.
+        ground_truth = {}
+        preds = {}
+        single_img_preds = torch.zeros(50, 50)
         with torch.no_grad():
-            for batch, labels in self.val_loader:
-                batch = batch.to(self.device)
-                labels = labels.to(self.device)
-                logits = self.model(batch)
-                loss = self.criterion(logits, labels)
-                total_loss += loss.item()
-                preds = logits.argmax(dim=-1).cpu().numpy()
-                results["preds"].extend(list(preds))
-                results["labels"].extend(list(labels.cpu().numpy()))
+            for index in tqdm(range(self.val_dataset.__len__()), desc="Validation"):
+                crop_index = index % 2500
+                crop_x = crop_index % 50
+                crop_y = crop_index // 50
+                img, label = self.val_dataset.__getitem__(index)  # no label
+                img_400_crop = img[0, :, :, :].unsqueeze(0).to(device)
+                # print(img_400_crop.shape)
+                img_250_crop = img[1, :, :, :].unsqueeze(0).to(device)
+                # print(img_250_crop.shape)
+                img_150_crop = img[2, :, :, :].unsqueeze(0).to(device)
+                # print(img_150_crop.shape)
 
-        accuracy = compute_accuracy(
-            np.array(results["labels"]), np.array(results["preds"])
-        )
-        average_loss = total_loss / len(self.val_loader)
+                output = self.model(img_400_crop, img_250_crop, img_150_crop)
+                single_img_preds[crop_y][crop_x] = output.squeeze().cpu()
 
-        # Week 4: calculate per class accuracy
-        per_class_accuracy = compute_per_class_accuracy(
-            np.array(results["labels"]), np.array(results["preds"]), num_classes=self.model.class_count,
-        )
-        for class_idx, acc in enumerate(per_class_accuracy):
-            print(f"Class {class_idx}: Accuracy: {acc * 100:.2f}%")
+                if (index+1) % 2500 == 0:
+                    filename = self.val_dataset.__getfile__(index)["file"]
+                    gt = plt.imread(f'../dataset/val_ground_truth/{filename}_fixMap.jpg')
+                    gt_height, gt_width = gt.shape[:2]
+
+                    resized_preds = F.interpolate(
+                        single_img_preds.unsqueeze(0).unsqueeze(0),
+                        size=(gt_height, gt_width),
+                        mode='bilinear',
+                        align_corners=False
+                    ).squeeze().cpu().numpy()
+                    preds[filename]= resized_preds
+                    ground_truth[filename] = gt
+                    # preds[sample_index] = single_img_preds
+                    # val_dataset.__getfile__(index)["file"]
+                    # gt = plt.imread(f'../dataset/val_ground_truth/{self.val_dataset.__getfile__(index)["file"]}_fixMap.jpg')
+                    # gt = torch.tensor(gt).float()
+                    # my_dict['city'] = 'New York'
+
+            # calculate AUC
+            auc = calculate_auc(preds, ground_truth)
+            return auc
 
 
-        self.summary_writer.add_scalars(
-            "accuracy",
-            {"test": accuracy},
-            self.step
-        )
-        self.summary_writer.add_scalars(
-            "loss",
-            {"test": average_loss},
-            self.step
-        )
-        print(f"validation loss: {average_loss:.5f}, accuracy: {accuracy * 100:2.2f}")
 
-def compute_per_class_accuracy(labels, preds, num_classes):
-    correct_class = torch.zeros(num_classes)
-    total_class = torch.zeros(num_classes)
-
-    for label, pred in zip(labels, preds):
-        if label == pred:
-            correct_class[label] += 1
-        total_class[label] += 1
-
-    return correct_class / total_class
-
-def compute_accuracy(
-        labels: Union[torch.Tensor, np.ndarray], preds: Union[torch.Tensor, np.ndarray]
-) -> float:
-    """
-    Args:
-        labels: ``(batch_size, class_count)`` tensor or array containing example labels
-        preds: ``(batch_size, class_count)`` tensor or array containing model prediction
-    """
-    assert len(labels) == len(preds)
-    return float((labels == preds).sum()) / len(labels)
+def get_accuracy (preds, y):
+    assert len(preds) == len(y)
+    preds = (preds > 0.5).float()
+    return float((y == preds).sum().item() / len(y))
 
 
 def get_summary_writer_log_dir(args: argparse.Namespace) -> str:
@@ -431,18 +342,12 @@ def get_summary_writer_log_dir(args: argparse.Namespace) -> str:
         from getting logged to the same TB log directory (which you can't easily
         untangle in TB).
     """
-    # tb_log_dir_prefix = f'CNN_bs={args.batch_size}_lr={args.learning_rate}_run_'
-    # tb_log_dir_prefix = f'CNN_bn_bs={args.batch_size}_lr={args.learning_rate}_run_'
-    # tb_log_dir_prefix = f'CNN_bn_bs={args.batch_size}_lr={args.learning_rate}_momentum=0.9_run_'
-    # tb_log_dir_prefix = f'CNN_bn_bs={args.batch_size}_lr={args.learning_rate}_momentum=0.9_scheduler_run_'
     tb_log_dir_prefix =(
-            f"CNN_bn_"
+            f"Mr-CNN"
             f"dropout={args.dropout}_"
             f"bs={args.batch_size}_"
             f"lr={args.learning_rate}_"
             f"momentum=0.9_" +
-            ("hflip_" if args.data_aug_hflip else "") +
-            f"brightness={args.data_aug_brightness}"
             f"run_"
     )
     i = 0
