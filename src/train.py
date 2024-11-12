@@ -39,7 +39,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--epochs",
-    default=10,
+    default=1,
     type=int,
     help="Number of epochs (passes through the entire dataset) to train for",
 )
@@ -181,6 +181,10 @@ class Trainer:
             self.model.train()
             data_load_start_time = time.time()
             total_loss = 0
+            total_accuracy = 0
+            num_batches = len(self.train_loader)
+            
+            
             for batch in self.train_loader:
                 img,label = batch
                 img_400_crop = img[:, 0, :, :, :].to(device)
@@ -191,7 +195,7 @@ class Trainer:
                 output = self.model(img_400_crop, img_250_crop, img_150_crop)
                 label = label.view(-1, 1).float().to(device)
                 loss = self.criterion(output, label)
-                total_loss += loss.item()
+                total_loss += loss.item() # accumulate loss
                 loss.backward()
 
                 self.optimizer.step()
@@ -199,6 +203,7 @@ class Trainer:
                 with torch.no_grad():
                     preds = output
                     accuracy = get_accuracy(preds,label)
+                    total_accuracy += accuracy # accumulate accuracy
 
                 data_load_time = data_load_end_time - data_load_start_time
                 step_time = time.time() - data_load_end_time
@@ -210,6 +215,12 @@ class Trainer:
                 self.step += 1
 
                 data_load_start_time = time.time()
+                
+                # The average batch loss and batch accuracy
+                avg_epoch_loss = total_loss / num_batches
+                avg_epoch_accuracy = total_accuracy / num_batches
+            print(f"epoch: [{epoch}], " f"Average Loss: {avg_epoch_loss:.5f}," f"Average Accuracy: {avg_epoch_accuracy:.2f}")
+                
             # print(f'Epoch {epoch + 1}, Loss: {loss.item()}')
             # Average validation loss and accuracy
             # avg_val_loss = loss / len(self.val_loader)
@@ -324,10 +335,20 @@ class Trainer:
 
 
 
-def get_accuracy (preds, y):
-    assert len(preds) == len(y)
-    preds = (preds > 0.5).float()
-    return float((y == preds).sum().item() / len(y))
+def get_accuracy (preds, y,threshold=0.5):
+    tp = tn = fp = fn = 0
+    pred_binary = [1 if p > threshold else 0 for p in preds]
+    for i in range(len(y)):
+        if y[i] == 1 and pred_binary[i] == 1:
+            tp += 1
+        elif y[i] == 0 and pred_binary[i] == 0:
+            tn += 1
+        elif y[i] == 0 and pred_binary[i] == 1:
+            fp += 1
+        elif y[i] == 1 and pred_binary[i] == 0:
+            fn += 1
+    accuracy = (tp + tn) / (tp + tn + fp + fn) if (tp + tn + fp + fn) > 0 else 0
+    return accuracy
 
 
 def get_summary_writer_log_dir(args: argparse.Namespace) -> str:
