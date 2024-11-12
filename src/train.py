@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import time
 from multiprocessing import cpu_count
 from typing import Union, NamedTuple
@@ -9,12 +10,14 @@ from torch.optim import Adam
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from torchvision import transforms
-from dataset import MIT
+from dataset import MIT, load_ground_truth
 import argparse
 from pathlib import Path
-from src.MrCNN import MrCNN
-from src.metrics import calculate_auc
+from MrCNN import MrCNN
+from metrics import calculate_auc
+import matplotlib.pyplot as plt
+import torch.nn.functional as F
+from tqdm import tqdm
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # device = 'cpu'
@@ -36,7 +39,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--epochs",
-    default=1,
+    default=10,
     type=int,
     help="Number of epochs (passes through the entire dataset) to train for",
 )
@@ -65,115 +68,34 @@ parser.add_argument(
     type=int,
     help="Number of worker processes used to load data.",
 )
-parser.add_argument(
-    "--data-aug-hflip",
-    action = "store_true",
-)
-parser.add_argument(
-    "--data-aug-brightness",
-    default=0,
-    type=float
-)
+
 parser.add_argument(
     "--dropout",
     default=0,
     type=float,
 )
 
-# checkpoints
-parser.add_argument(
-    "--checkpoint-path",
-    default= Path("checkpoints"),
-    type=Path
-)
-
 parser.add_argument(
     "--checkpoint-frequency",
     type=int,
-    default = 1,
+    default = 5,
     help="Save a checkpoint every N epochs"
 )
 
-parser.add_argument(
-    "--resume-checkpoint",
-    default= Path("checkpoints"),
-    type=Path
-)
-
-parser.add_argument(
-    "--start-epoch",
-    type = int,
-    default = 0,
-)
-
-class ImageShape(NamedTuple):
-    height: int
-    width: int
-    channels: int
-
 def main(args):
-    transform_train_list = []
-
-    if args.data_aug_hflip:
-        transform_train_list.append(transforms.RandomHorizontalFlip())
-
-    if args.data_aug_brightness > 0:
-        transform_train_list.append(transforms.ColorJitter(brightness=args.data_aug_brightness))
-
-    # Only apply data augmentation to the training data
-    transform_train_list.append(transforms.ToTensor())
-    transform_train = transforms.Compose(transform_train_list)
-
-    transform_test = transforms.ToTensor()
-
-
     train_dataset_path = '../dataset/train_data.pth.tar'
     train_dataset = MIT(train_dataset_path)
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=4)
 
     val_dataset_path = '../dataset/val_data.pth.tar'
     val_dataset = MIT(val_dataset_path)
-    # val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=4)
 
-    test_dataset_path = '../dataset/test_data.pth.tar'
-    test_dataset = MIT(test_dataset_path)
-    # test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=4)
-
-    # TODO: some duplidate code here
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset,
-        shuffle=True,
-        batch_size=args.batch_size,
-        pin_memory=True,
-        num_workers=args.worker_count,
-    )
-    test_loader = torch.utils.data.DataLoader(
-        test_dataset,
-        shuffle=False,
-        batch_size=args.batch_size,
-        num_workers=args.worker_count,
-        pin_memory=True,
-    )
-    val_loader = DataLoader(
-        val_dataset,
-        shuffle=False,
-        batch_size=args.batch_size,
-        num_workers=args.worker_count,
-        pin_memory=True,
-    )
+    val_ground_truth_path = '../dataset/val_ground_truth'
+    if not Path(val_ground_truth_path).exists():
+        load_ground_truth(dataset=val_dataset, img_dataset_path='../dataset/ALLFIXATIONMAPS', target_folder_path=val_ground_truth_path)
 
     # MrCNN model
     # TODO: Change the parameters
     model = MrCNN()
-
-
-    # # checkpoint model resume
-    # if args.resume_checkpoint.exists():
-    #     start_dict = torch.load(args.resume_checkpoint)
-    #     print(f"Loading model from {args.resume_checkpoint} that achieved {start_dict['accuracy'] * 100:.2f}% accuracy")
-    #     model.load_state_dict(start_dict)
-    # else:
-    #     print("Training from scratch")
 
     criterion = nn.BCELoss()
 
@@ -183,14 +105,19 @@ def main(args):
 
     log_dir = get_summary_writer_log_dir(args)
     print(f"Writing logs to {log_dir}")
+
     summary_writer = SummaryWriter(
         str(log_dir),
         flush_secs=5
     )
+    checkpoint_path = f'./checkpoint/run_{log_dir.split("_")[-1]}'
+    if not Path(checkpoint_path).exists():
+        Path(checkpoint_path).mkdir(parents=True, exist_ok=True)
+
     trainer = Trainer(
-        model, train_loader, val_loader, criterion, optimizer, summary_writer, device, schedular,
-        checkpoint_path = args.checkpoint_path,
-        checkpoint_frequency = args.checkpoint_frequency,
+        model, train_dataset, val_dataset, criterion, optimizer, summary_writer, device, schedular,
+        checkpoint_path = checkpoint_path,
+        checkpoint_frequency= args.checkpoint_frequency,
         args = args
     )
 
@@ -208,21 +135,21 @@ class Trainer:
     def __init__(
             self,
             model: nn.Module,
-            train_loader: DataLoader,
-            val_loader: DataLoader,
+            train_dataset: MIT,
+            val_dataset: MIT,
             criterion: nn.Module,
             optimizer: Optimizer,
             summary_writer: SummaryWriter,
             device: torch.device,
             schedular: torch.optim.lr_scheduler.StepLR,
-            checkpoint_path: Path,
+            checkpoint_path: str,
             checkpoint_frequency: int,
             args
     ):
         self.model = model.to(device)
         self.device = device
-        self.train_loader = train_loader
-        self.val_loader = val_loader
+        self.train_dataset = train_dataset
+        self.val_dataset = val_dataset
         self.criterion = criterion
         self.optimizer = optimizer
         self.summary_writer = summary_writer
@@ -231,6 +158,13 @@ class Trainer:
         self.checkpoint_path = checkpoint_path
         self.checkpoint_frequency = checkpoint_frequency
         self.args = args
+        self.train_loader = DataLoader(
+            self.train_dataset,
+            shuffle=True,
+            batch_size=args.batch_size,
+            pin_memory=True,
+            num_workers=args.worker_count,
+        )
 
     def train(
             self,
@@ -242,21 +176,21 @@ class Trainer:
             args = None
     ):
         self.model.train()
+        best_auc = 0
         for epoch in range(start_epoch, epochs):
             self.model.train()
             data_load_start_time = time.time()
             total_loss = 0
-
             for batch in self.train_loader:
-                X,y = batch
-                X_400_crop = X[:, 0, :, :, :].to(device)
-                X_250_crop = X[:, 1, :, :, :].to(device)
-                X_150_crop = X[:, 2, :, :, :].to(device)
+                img,label = batch
+                img_400_crop = img[:, 0, :, :, :].to(device)
+                img_250_crop = img[:, 1, :, :, :].to(device)
+                img_150_crop = img[:, 2, :, :, :].to(device)
                 data_load_end_time = time.time()
 
-                output = self.model(X_400_crop, X_250_crop, X_150_crop)
-                y = y.view(-1, 1).float().to(device)
-                loss = self.criterion(output, y)
+                output = self.model(img_400_crop, img_250_crop, img_150_crop)
+                label = label.view(-1, 1).float().to(device)
+                loss = self.criterion(output, label)
                 total_loss += loss.item()
                 loss.backward()
 
@@ -264,7 +198,7 @@ class Trainer:
                 self.optimizer.zero_grad()
                 with torch.no_grad():
                     preds = output
-                    accuracy = get_accuracy(preds,y)
+                    accuracy = get_accuracy(preds,label)
 
                 data_load_time = data_load_end_time - data_load_start_time
                 step_time = time.time() - data_load_end_time
@@ -283,20 +217,35 @@ class Trainer:
             self.summary_writer.add_scalar("epoch", epoch, self.step)
 
             if ((epoch + 1) % val_frequency) == 0:
-                self.validate()
+                self.model.eval()
+                auc = self.validate()
+                print(f"Epoch {epoch} validation AUC score {auc}")
                 # self.validate() will put the model in validation mode,
                 # so we have to switch back to train mode afterwards
-                self.model.train()
-            # if ((epoch + 1) % self.checkpoint_frequency) == 0 and self.checkpoint_path:
-            #     checkpoint_file = os.path.join(self.checkpoint_path, f"model_epoch_{epoch + 1}.pth")
-            #     # torch.save({
-            #     #     'args': args,
-            #     #     'model': self.model.state_dict(),
-            #     #     'accuracy': accuracy,
-            #     #     'epoch': epoch,
-            #     # }, checkpoint_file)
-            #     torch.save(self.model.state_dict(), checkpoint_file)
-            #     print(f"Checkpoint saved at {checkpoint_file}")
+                # self.model.train()
+                if auc > best_auc:
+                    best_auc = auc
+                    checkpoint_file = os.path.join(self.checkpoint_path, f"best_model.pth")
+                    torch.save(self.model.state_dict(), checkpoint_file)
+
+
+            if ((epoch + 1) % self.checkpoint_frequency) == 0:
+                checkpoint_file = os.path.join(self.checkpoint_path, f"model_epoch_{epoch}.pth")
+                torch.save({
+                    'args': args,
+                    'model': self.model.state_dict(),
+                    'epoch': epoch,
+                }, checkpoint_file)
+                print(f"Checkpoint saved at {checkpoint_file}")
+
+            if (epoch + 1) == epochs:
+                checkpoint_file = os.path.join(self.checkpoint_path, f"final_model.pth")
+                torch.save({
+                    'args': args,
+                    'model': self.model.state_dict(),
+                    'epoch': epoch,
+                }, checkpoint_file)
+                print(f"Checkpoint saved at {checkpoint_file}")
 
     def print_metrics(self, epoch, accuracy, loss, data_load_time, step_time):
         epoch_step = self.step % len(self.train_loader)
@@ -331,17 +280,47 @@ class Trainer:
 
     # TODO: Implement the validate method
     def validate(self):
+        ground_truth = {}
         preds = {}
-        self.model.eval()
+        single_img_preds = torch.zeros(50, 50)
         with torch.no_grad():
-            for i, batch in enumerate(self.val_loader):
-                X, _ = batch  # no ground truth
-                X_400_crop = X[:, 0, :, :, :].to(device)
-                X_250_crop = X[:, 1, :, :, :].to(device)
-                X_150_crop = X[:, 2, :, :, :].to(device)
+            for index in tqdm(range(self.val_dataset.__len__()), desc="Validation"):
+                crop_index = index % 2500
+                crop_x = crop_index % 50
+                crop_y = crop_index // 50
+                img, label = self.val_dataset.__getitem__(index)  # no label
+                img_400_crop = img[0, :, :, :].unsqueeze(0).to(device)
+                # print(img_400_crop.shape)
+                img_250_crop = img[1, :, :, :].unsqueeze(0).to(device)
+                # print(img_250_crop.shape)
+                img_150_crop = img[2, :, :, :].unsqueeze(0).to(device)
+                # print(img_150_crop.shape)
 
-                output = self.model(X_400_crop, X_250_crop, X_150_crop)
-                preds[i] = output.squeeze().cpu().numpy()
+                output = self.model(img_400_crop, img_250_crop, img_150_crop)
+                single_img_preds[crop_y][crop_x] = output.squeeze().cpu()
+
+                if (index+1) % 2500 == 0:
+                    filename = self.val_dataset.__getfile__(index)["file"]
+                    gt = plt.imread(f'../dataset/val_ground_truth/{filename}_fixMap.jpg')
+                    gt_height, gt_width = gt.shape[:2]
+
+                    resized_preds = F.interpolate(
+                        single_img_preds.unsqueeze(0).unsqueeze(0),
+                        size=(gt_height, gt_width),
+                        mode='bilinear',
+                        align_corners=False
+                    ).squeeze().cpu().numpy()
+                    preds[filename]= resized_preds
+                    ground_truth[filename] = gt
+                    # preds[sample_index] = single_img_preds
+                    # val_dataset.__getfile__(index)["file"]
+                    # gt = plt.imread(f'../dataset/val_ground_truth/{self.val_dataset.__getfile__(index)["file"]}_fixMap.jpg')
+                    # gt = torch.tensor(gt).float()
+                    # my_dict['city'] = 'New York'
+
+            # calculate AUC
+            auc = calculate_auc(preds, ground_truth)
+            return auc
 
 
 
@@ -369,8 +348,6 @@ def get_summary_writer_log_dir(args: argparse.Namespace) -> str:
             f"bs={args.batch_size}_"
             f"lr={args.learning_rate}_"
             f"momentum=0.9_" +
-            ("hflip_" if args.data_aug_hflip else "") +
-            f"brightness={args.data_aug_brightness}"
             f"run_"
     )
     i = 0
