@@ -220,6 +220,7 @@ class Trainer:
                 avg_epoch_loss = total_loss / num_batches
                 avg_epoch_accuracy = total_accuracy / num_batches
                 print(f'Epoch {epoch}, Average Loss: {avg_epoch_loss:.5f}, Average Accuracy: {avg_epoch_accuracy:.2f}%')
+            print(f"epoch: [{epoch}], " f"Average Loss: {avg_epoch_loss:.5f}," f"Average Accuracy: {avg_epoch_accuracy:.2f}")
                 
             # print(f'Epoch {epoch + 1}, Loss: {loss.item()}')
             # Average validation loss and accuracy
