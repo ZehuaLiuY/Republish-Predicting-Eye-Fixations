@@ -39,7 +39,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--epochs",
-    default=10,
+    default=1,
     type=int,
     help="Number of epochs (passes through the entire dataset) to train for",
 )
@@ -335,10 +335,20 @@ class Trainer:
 
 
 
-def get_accuracy (preds, y):
-    assert len(preds) == len(y)
-    preds = (preds > 0.5).float()
-    return float((y == preds).sum().item() / len(y))
+def get_accuracy (preds, y,threshold=0.5):
+    tp = tn = fp = fn = 0
+    pred_binary = [1 if p > threshold else 0 for p in preds]
+    for i in range(len(y)):
+        if y[i] == 1 and pred_binary[i] == 1:
+            tp += 1
+        elif y[i] == 0 and pred_binary[i] == 0:
+            tn += 1
+        elif y[i] == 0 and pred_binary[i] == 1:
+            fp += 1
+        elif y[i] == 1 and pred_binary[i] == 0:
+            fn += 1
+    accuracy = (tp + tn) / (tp + tn + fp + fn) if (tp + tn + fp + fn) > 0 else 0
+    return accuracy
 
 
 def get_summary_writer_log_dir(args: argparse.Namespace) -> str:
