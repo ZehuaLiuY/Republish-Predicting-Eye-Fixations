@@ -2,11 +2,8 @@
 import os
 import time
 from multiprocessing import cpu_count
-from tabnanny import check
-from typing import Union, NamedTuple
 import torch
 import torch.backends.cudnn
-from debugpy.common.timestamp import current
 from torch import nn
 from torch.optim import Adam
 from torch.optim.optimizer import Optimizer
@@ -15,9 +12,12 @@ from torch.utils.tensorboard import SummaryWriter
 from dataset import MIT, load_ground_truth
 import argparse
 from pathlib import Path
+
 from MrCNN import MrCNN
 from MrCNNs import MrCNNs
-from metrics import calculate_auc
+
+from metrics import calculate_auc, calculate_roc_with_shuffle
+
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 from tqdm import tqdm
@@ -244,9 +244,14 @@ class Trainer:
 
             if ((epoch + 1) % val_frequency) == 0:
                 self.model.eval()
+
                 auc = self.validate()
                 current_auc = auc
                 print(f"Epoch {epoch + 1} validation AUC score {auc}")
+
+                shuffle_auc = self.validate(shuffle=True)
+                print(f"Epoch {epoch + 1} validation AUC score {shuffle_auc}")
+
                 # self.validate() will put the model in validation mode,
                 # so we have to switch back to train mode afterwards
                 # self.model.train()
@@ -316,7 +321,7 @@ class Trainer:
         )
 
     # TODO: Implement the validate method
-    def validate(self):
+    def validate(self, shuffle=False):
         ground_truth = {}
         preds = {}
         single_img_preds = torch.zeros(50, 50)
@@ -354,9 +359,14 @@ class Trainer:
                     # gt = plt.imread(f'../dataset/val_ground_truth/{self.val_dataset.__getfile__(index)["file"]}_fixMap.jpg')
                     # gt = torch.tensor(gt).float()
                     # my_dict['city'] = 'New York'
+            auc = 0
+            if not shuffle:
+                # calculate AUC
+                auc = calculate_auc(preds, ground_truth)
+            else:
+                # calculate shuffled-AUC
+                auc = calculate_roc_with_shuffle(preds, ground_truth)
 
-            # calculate AUC
-            auc = calculate_auc(preds, ground_truth)
             return auc
 
 

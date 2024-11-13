@@ -7,7 +7,7 @@ from dataset import MIT, load_ground_truth
 import argparse
 from pathlib import Path
 from MrCNN import MrCNN
-from metrics import calculate_auc
+from metrics import calculate_auc, calculate_roc_with_shuffle
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 from tqdm import tqdm
@@ -35,6 +35,7 @@ parser.add_argument(
     help="Path to the model.pth file",
 )
 
+
 def main(args):
     test_data_path = '../dataset/test_data.pth.tar'
     test_dataset = MIT(test_data_path)
@@ -42,6 +43,7 @@ def main(args):
     test_ground_truth_path = '../dataset/test_ground_truth'
     if not Path(test_ground_truth_path).exists():
         load_ground_truth(dataset=test_dataset, img_dataset_path='../dataset/ALLFIXATIONMAPS', target_folder_path=test_ground_truth_path)
+
 
     if args.model == 'MrCNN':
         model = MrCNN()
@@ -61,6 +63,7 @@ def main(args):
         raise ValueError("Invalid model type")
 
     print("Test auc score: ", validate(model, test_dataset))
+
 
 
 def validate(model, dataset):
@@ -103,7 +106,14 @@ def validate(model, dataset):
 
         # calculate AUC
         auc = calculate_auc(preds, ground_truth)
+        print("Non-shuffled Test auc score: ", auc)
+
+        # calculate shuffled-AUC
+        shuffled_auc = calculate_roc_with_shuffle(preds, ground_truth)
+        print("Shuffled Test auc score: ", shuffled_auc)
+
         return auc
+
 
 if __name__ == "__main__":
     main(parser.parse_args())
