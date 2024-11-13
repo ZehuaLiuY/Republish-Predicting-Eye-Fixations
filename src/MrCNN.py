@@ -18,6 +18,18 @@ class MrCNN(nn.Module):
         self.branch3_conv2 = nn.Conv2d(96, 160, kernel_size=3, stride=1, padding=0)
         self.branch3_conv3 = nn.Conv2d(160, 288, kernel_size=3, stride=1, padding=0)
 
+        # initialise the layers
+        self.initialise_layer(self.branch1_conv1)
+        self.initialise_layer(self.branch1_conv2)
+        self.initialise_layer(self.branch1_conv3)
+        self.initialise_layer(self.branch2_conv1)
+        self.initialise_layer(self.branch2_conv2)
+        self.initialise_layer(self.branch2_conv3)
+        self.initialise_layer(self.branch3_conv1)
+        self.initialise_layer(self.branch3_conv2)
+        self.initialise_layer(self.branch3_conv3)
+
+
         ## layers for all branches
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
 

@@ -2,7 +2,6 @@
 import os
 import time
 from multiprocessing import cpu_count
-from typing import Union, NamedTuple
 import torch
 import torch.backends.cudnn
 from torch import nn
@@ -13,8 +12,12 @@ from torch.utils.tensorboard import SummaryWriter
 from dataset import MIT, load_ground_truth
 import argparse
 from pathlib import Path
+
 from MrCNN import MrCNN
+from MrCNNs import MrCNNs
+
 from metrics import calculate_auc, calculate_roc_with_shuffle
+
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 from tqdm import tqdm
@@ -82,6 +85,12 @@ parser.add_argument(
     help="Save a checkpoint every N epochs"
 )
 
+parser.add_argument(
+    "--model",
+    choices=['MrCNN', 'MrCNNs'], default='MrCNN',
+    help="Choose model type: 'MrCNN' for separate branches or 'MrCNNs' for shared branches"
+)
+
 def main(args):
     train_dataset_path = '../dataset/train_data.pth.tar'
     train_dataset = MIT(train_dataset_path)
@@ -93,9 +102,12 @@ def main(args):
     if not Path(val_ground_truth_path).exists():
         load_ground_truth(dataset=val_dataset, img_dataset_path='../dataset/ALLFIXATIONMAPS', target_folder_path=val_ground_truth_path)
 
-    # MrCNN model
-    # TODO: Change the parameters
-    model = MrCNN()
+    if args.model == 'MrCNN':
+        model = MrCNN()
+    elif args.model == 'MrCNNs':
+        model = MrCNNs()
+    else:
+        raise ValueError(f"Unknown model type: {args.model}")
 
     criterion = nn.BCELoss()
 
@@ -110,7 +122,7 @@ def main(args):
         str(log_dir),
         flush_secs=5
     )
-    checkpoint_path = f'./checkpoint/run_{log_dir.split("_")[-1]}'
+    checkpoint_path = f'./checkpoint/{args.model}_run_{log_dir.split("_")[-1]}'
     if not Path(checkpoint_path).exists():
         Path(checkpoint_path).mkdir(parents=True, exist_ok=True)
 
@@ -126,6 +138,7 @@ def main(args):
         args.val_frequency,
         print_frequency=args.print_frequency,
         log_frequency=args.log_frequency,
+        args = args
     )
 
     summary_writer.close()
@@ -176,7 +189,9 @@ class Trainer:
             args = None
     ):
         self.model.train()
+        args = args if args is not None else self.args
         best_auc = 0
+        current_auc = 0
         for epoch in range(start_epoch, epochs):
             self.model.train()
             data_load_start_time = time.time()
@@ -219,7 +234,7 @@ class Trainer:
                 # The average batch loss and batch accuracy
                 avg_epoch_loss = total_loss / num_batches
                 avg_epoch_accuracy = total_accuracy / num_batches
-            print(f"epoch: [{epoch}], " f"Average Loss: {avg_epoch_loss:.5f}," f"Average Accuracy: {avg_epoch_accuracy:.2f}")
+            print(f"epoch: [{epoch + 1}], " f"Average Loss: {avg_epoch_loss:.5f}," f"Average Accuracy: {avg_epoch_accuracy:.2f}")
                 
             # print(f'Epoch {epoch + 1}, Loss: {loss.item()}')
             # Average validation loss and accuracy
@@ -229,19 +244,26 @@ class Trainer:
 
             if ((epoch + 1) % val_frequency) == 0:
                 self.model.eval()
-                auc = self.validate(shuffle=True)
-                print(f"Epoch {epoch} validation AUC score {auc}")
+
+                auc = self.validate()
+                current_auc = auc
+                print(f"Epoch {epoch + 1} validation AUC score {auc}")
+
+                shuffle_auc = self.validate(shuffle=True)
+                print(f"Epoch {epoch + 1} validation AUC score {shuffle_auc}")
+
                 # self.validate() will put the model in validation mode,
                 # so we have to switch back to train mode afterwards
                 # self.model.train()
-                if auc > best_auc:
-                    best_auc = auc
-                    checkpoint_file = os.path.join(self.checkpoint_path, f"best_model.pth")
-                    torch.save(self.model.state_dict(), checkpoint_file)
+            if current_auc > best_auc:
+                best_auc = current_auc
+                checkpoint_file = os.path.join(self.checkpoint_path, f"best.pth")
+                torch.save(self.model.state_dict(), checkpoint_file)
+                print(f"Best model so far saved at {checkpoint_file}")
 
 
             if ((epoch + 1) % self.checkpoint_frequency) == 0:
-                checkpoint_file = os.path.join(self.checkpoint_path, f"model_epoch_{epoch}.pth")
+                checkpoint_file = os.path.join(self.checkpoint_path, f"epoch_{epoch+ 1}.pth")
                 torch.save({
                     'args': args,
                     'model': self.model.state_dict(),
@@ -250,18 +272,27 @@ class Trainer:
                 print(f"Checkpoint saved at {checkpoint_file}")
 
             if (epoch + 1) == epochs:
-                checkpoint_file = os.path.join(self.checkpoint_path, f"final_model.pth")
-                torch.save({
-                    'args': args,
-                    'model': self.model.state_dict(),
-                    'epoch': epoch,
-                }, checkpoint_file)
-                print(f"Checkpoint saved at {checkpoint_file}")
+                if current_auc > best_auc:
+                    checkpoint_file = os.path.join(self.checkpoint_path, f"final_best_model.pth")
+                    torch.save({
+                        'args': args,
+                        'model': self.model.state_dict(),
+                        'epoch': epoch,
+                    }, checkpoint_file)
+                    print(f"the final model is the best model, saved at {checkpoint_file}")
+                else:
+                    checkpoint_file = os.path.join(self.checkpoint_path, f"final_best_model.pth")
+                    torch.save({
+                        'args': args,
+                        'model': self.model.state_dict(),
+                        'epoch': epoch,
+                    }, checkpoint_file)
+                    print(f"final model saved at {checkpoint_file}")
 
     def print_metrics(self, epoch, accuracy, loss, data_load_time, step_time):
         epoch_step = self.step % len(self.train_loader)
         print(
-            f"epoch: [{epoch}], "
+            f"epoch: [{epoch + 1}], "
             f"step: [{epoch_step}/{len(self.train_loader)}], "
             f"batch loss: {loss:.5f}, "
             f"batch accuracy: {accuracy :2.2f}, "
@@ -369,7 +400,7 @@ def get_summary_writer_log_dir(args: argparse.Namespace) -> str:
         untangle in TB).
     """
     tb_log_dir_prefix =(
-            f"Mr-CNN"
+            f"{args.model}_"
             f"dropout={args.dropout}_"
             f"bs={args.batch_size}_"
             f"lr={args.learning_rate}_"

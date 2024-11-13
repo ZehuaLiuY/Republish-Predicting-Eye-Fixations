@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import torch
 import torch.backends.cudnn
+from accelerate.commands.config.update import description
+
 from dataset import MIT, load_ground_truth
 import argparse
 from pathlib import Path
@@ -10,6 +12,8 @@ import matplotlib.pyplot as plt
 import torch.nn.functional as F
 from tqdm import tqdm
 
+from MrCNNs import MrCNNs
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # device = 'cpu'
 torch.backends.cudnn.benchmark = True
@@ -17,6 +21,11 @@ torch.backends.cudnn.benchmark = True
 parser = argparse.ArgumentParser(
     description="Republish Predicting Eye Fixations",
     formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+)
+parser.add_argument(
+    '--model',
+    choices=['MrCNN', 'MrCNNs'], default='MrCNN',
+    help="Choose model type: 'MrCNN' for separate branches or 'MrCNNs' for shared branches"
 )
 
 
@@ -35,11 +44,29 @@ def main(args):
     if not Path(test_ground_truth_path).exists():
         load_ground_truth(dataset=test_dataset, img_dataset_path='../dataset/ALLFIXATIONMAPS', target_folder_path=test_ground_truth_path)
 
-    # MrCNN model
-    model = MrCNN()
-    state_dict = torch.load(args.model_path, weights_only=True)
-    model.load_state_dict(state_dict)
-    validate(model, test_dataset)
+
+    if args.model == 'MrCNN':
+        model = MrCNN()
+        state_dict = torch.load(args.model_path, weights_only=True)
+        model.load_state_dict(state_dict)
+
+    elif args.model == 'MrCNNs':
+        model = MrCNNs()
+
+        checkpoint = torch.load(args.model_path)
+        state_dict = checkpoint.get("model", checkpoint)
+        state_dict = {k: v for k, v in state_dict.items() if k in model.state_dict()}
+
+        model.load_state_dict(state_dict, strict=False)
+
+    else:
+        raise ValueError("Invalid model type")
+    auc, shuffle_auc = validate(model, test_dataset)
+
+    print("Test auc score: ", auc )
+    print("Shuffled Test auc score: ", shuffle_auc)
+
+
 
 
 def validate(model, dataset):
@@ -76,16 +103,19 @@ def validate(model, dataset):
                 ).squeeze().cpu().numpy()
                 preds[filename]= resized_preds
                 ground_truth[filename] = gt
+                # VISUALISE THE RESIZED PREDICTIONS
+                # plt.imshow(resized_preds)
+                # plt.show()
 
         # calculate AUC
         auc = calculate_auc(preds, ground_truth)
-        print("Non-shuffled Test auc score: ", auc)
+        # print("Non-shuffled Test auc score: ", auc)
 
         # calculate shuffled-AUC
         shuffled_auc = calculate_roc_with_shuffle(preds, ground_truth)
-        print("Shuffled Test auc score: ", shuffled_auc)
+        # print("Shuffled Test auc score: ", shuffled_auc)
 
-        return auc
+        return auc, shuffled_auc
 
 
 if __name__ == "__main__":
