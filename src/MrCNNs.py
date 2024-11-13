@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn.functional import dropout
+
 
 class MrCNNs(nn.Module):
     def __init__(self):
@@ -10,7 +12,11 @@ class MrCNNs(nn.Module):
         self.conv2 = nn.Conv2d(96, 160, kernel_size=3, stride=1, padding=0)
         self.conv3 = nn.Conv2d(160, 288, kernel_size=3, stride=1, padding=0)
 
-        ## layers for all branches
+        # initialise the layers
+        self.initialise_layer(self.conv1)
+        self.initialise_layer(self.conv2)
+        self.initialise_layer(self.conv3)
+
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
 
         # the paper uses a dropout layer with a rate of 0.5
