@@ -14,7 +14,7 @@ from dataset import MIT, load_ground_truth
 import argparse
 from pathlib import Path
 from MrCNN import MrCNN
-from metrics import calculate_auc
+from metrics import calculate_auc, calculate_roc_with_shuffle
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 from tqdm import tqdm
@@ -39,7 +39,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--epochs",
-    default=1,
+    default=10,
     type=int,
     help="Number of epochs (passes through the entire dataset) to train for",
 )
@@ -229,7 +229,7 @@ class Trainer:
 
             if ((epoch + 1) % val_frequency) == 0:
                 self.model.eval()
-                auc = self.validate()
+                auc = self.validate(shuffle=True)
                 print(f"Epoch {epoch} validation AUC score {auc}")
                 # self.validate() will put the model in validation mode,
                 # so we have to switch back to train mode afterwards
@@ -290,7 +290,7 @@ class Trainer:
         )
 
     # TODO: Implement the validate method
-    def validate(self):
+    def validate(self, shuffle=False):
         ground_truth = {}
         preds = {}
         single_img_preds = torch.zeros(50, 50)
@@ -328,9 +328,14 @@ class Trainer:
                     # gt = plt.imread(f'../dataset/val_ground_truth/{self.val_dataset.__getfile__(index)["file"]}_fixMap.jpg')
                     # gt = torch.tensor(gt).float()
                     # my_dict['city'] = 'New York'
+            auc = 0
+            if not shuffle:
+                # calculate AUC
+                auc = calculate_auc(preds, ground_truth)
+            else:
+                # calculate shuffled-AUC
+                auc = calculate_roc_with_shuffle(preds, ground_truth)
 
-            # calculate AUC
-            auc = calculate_auc(preds, ground_truth)
             return auc
 
 

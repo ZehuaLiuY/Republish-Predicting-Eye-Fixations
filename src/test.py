@@ -5,7 +5,7 @@ from dataset import MIT, load_ground_truth
 import argparse
 from pathlib import Path
 from MrCNN import MrCNN
-from metrics import calculate_auc
+from metrics import calculate_auc, calculate_roc_with_shuffle
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 from tqdm import tqdm
@@ -26,6 +26,7 @@ parser.add_argument(
     help="Path to the model.pth file",
 )
 
+
 def main(args):
     test_data_path = '../dataset/test_data.pth.tar'
     test_dataset = MIT(test_data_path)
@@ -38,8 +39,7 @@ def main(args):
     model = MrCNN()
     state_dict = torch.load(args.model_path, weights_only=True)
     model.load_state_dict(state_dict)
-
-    print("Test auc score: ", validate(model, test_dataset))
+    validate(model, test_dataset)
 
 
 def validate(model, dataset):
@@ -79,7 +79,14 @@ def validate(model, dataset):
 
         # calculate AUC
         auc = calculate_auc(preds, ground_truth)
+        print("Non-shuffled Test auc score: ", auc)
+
+        # calculate shuffled-AUC
+        shuffled_auc = calculate_roc_with_shuffle(preds, ground_truth)
+        print("Shuffled Test auc score: ", shuffled_auc)
+
         return auc
+
 
 if __name__ == "__main__":
     main(parser.parse_args())
