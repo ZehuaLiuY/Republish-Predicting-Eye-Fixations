@@ -61,8 +61,11 @@ def main(args):
 
     else:
         raise ValueError("Invalid model type")
+    auc, shuffle_auc = validate(model, test_dataset)
 
-    print("Test auc score: ", validate(model, test_dataset))
+    print("Test auc score: ", auc )
+    print("Shuffled Test auc score: ", shuffle_auc)
+
 
 
 
@@ -106,13 +109,13 @@ def validate(model, dataset):
 
         # calculate AUC
         auc = calculate_auc(preds, ground_truth)
-        print("Non-shuffled Test auc score: ", auc)
+        # print("Non-shuffled Test auc score: ", auc)
 
         # calculate shuffled-AUC
         shuffled_auc = calculate_roc_with_shuffle(preds, ground_truth)
-        print("Shuffled Test auc score: ", shuffled_auc)
+        # print("Shuffled Test auc score: ", shuffled_auc)
 
-        return auc
+        return auc, shuffled_auc
 
 
 if __name__ == "__main__":
