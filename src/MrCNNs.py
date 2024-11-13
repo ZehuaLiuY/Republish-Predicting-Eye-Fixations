@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.functional import dropout
-
+import matplotlib.pyplot as plt
 
 class MrCNNs(nn.Module):
     def __init__(self):
@@ -40,6 +40,7 @@ class MrCNNs(nn.Module):
             conv1.weight = nn.Parameter(new_weight)
 
         x = F.relu(conv1(x))
+        self.visualize_feature_map(x, layer_name="conv1")
         x = self.pool(x)
         x = F.relu(conv2(x))
         x = self.pool(x)
@@ -73,3 +74,12 @@ class MrCNNs(nn.Module):
             nn.init.zeros_(layer.bias)
         if hasattr(layer, "weight"):
             nn.init.kaiming_normal_(layer.weight)
+
+    def visualize_feature_map(self, x, layer_name):
+        x = x.detach().cpu().numpy()
+        fig, axes = plt.subplots(1, min(8, x.shape[1]), figsize=(20, 10))
+        for i in range(min(8, x.shape[1])):
+            axes[i].imshow(x[0, i], cmap='viridis')
+            axes[i].axis('off')
+        fig.suptitle(f"Feature maps after {layer_name}")
+        plt.show()
