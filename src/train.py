@@ -2,9 +2,11 @@
 import os
 import time
 from multiprocessing import cpu_count
+from tabnanny import check
 from typing import Union, NamedTuple
 import torch
 import torch.backends.cudnn
+from debugpy.common.timestamp import current
 from torch import nn
 from torch.optim import Adam
 from torch.optim.optimizer import Optimizer
@@ -189,6 +191,7 @@ class Trainer:
         self.model.train()
         args = args if args is not None else self.args
         best_auc = 0
+        current_auc = 0
         for epoch in range(start_epoch, epochs):
             self.model.train()
             data_load_start_time = time.time()
@@ -242,18 +245,20 @@ class Trainer:
             if ((epoch + 1) % val_frequency) == 0:
                 self.model.eval()
                 auc = self.validate()
+                current_auc = auc
                 print(f"Epoch {epoch + 1} validation AUC score {auc}")
                 # self.validate() will put the model in validation mode,
                 # so we have to switch back to train mode afterwards
                 # self.model.train()
-                if auc > best_auc:
-                    best_auc = auc
-                    checkpoint_file = os.path.join(self.checkpoint_path, f"{args.model}best_model.pth")
-                    torch.save(self.model.state_dict(), checkpoint_file)
+            if current_auc > best_auc:
+                best_auc = current_auc
+                checkpoint_file = os.path.join(self.checkpoint_path, f"best.pth")
+                torch.save(self.model.state_dict(), checkpoint_file)
+                print(f"Best model so far saved at {checkpoint_file}")
 
 
             if ((epoch + 1) % self.checkpoint_frequency) == 0:
-                checkpoint_file = os.path.join(self.checkpoint_path, f"{args.model}_epoch_{epoch+ 1}.pth")
+                checkpoint_file = os.path.join(self.checkpoint_path, f"epoch_{epoch+ 1}.pth")
                 torch.save({
                     'args': args,
                     'model': self.model.state_dict(),
@@ -262,13 +267,22 @@ class Trainer:
                 print(f"Checkpoint saved at {checkpoint_file}")
 
             if (epoch + 1) == epochs:
-                checkpoint_file = os.path.join(self.checkpoint_path, f"{args.model}final_model.pth")
-                torch.save({
-                    'args': args,
-                    'model': self.model.state_dict(),
-                    'epoch': epoch,
-                }, checkpoint_file)
-                print(f"Checkpoint saved at {checkpoint_file}")
+                if current_auc > best_auc:
+                    checkpoint_file = os.path.join(self.checkpoint_path, f"final_best_model.pth")
+                    torch.save({
+                        'args': args,
+                        'model': self.model.state_dict(),
+                        'epoch': epoch,
+                    }, checkpoint_file)
+                    print(f"the final model is the best model, saved at {checkpoint_file}")
+                else:
+                    checkpoint_file = os.path.join(self.checkpoint_path, f"final_best_model.pth")
+                    torch.save({
+                        'args': args,
+                        'model': self.model.state_dict(),
+                        'epoch': epoch,
+                    }, checkpoint_file)
+                    print(f"final model saved at {checkpoint_file}")
 
     def print_metrics(self, epoch, accuracy, loss, data_load_time, step_time):
         epoch_step = self.step % len(self.train_loader)

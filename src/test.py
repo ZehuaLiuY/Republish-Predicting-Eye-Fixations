@@ -51,11 +51,14 @@ def main(args):
     elif args.model == 'MrCNNs':
         model = MrCNNs()
 
-        checkpoint = torch.load(args.model_path, weights_only=True)
+        checkpoint = torch.load(args.model_path)
         state_dict = checkpoint.get("model", checkpoint)
         state_dict = {k: v for k, v in state_dict.items() if k in model.state_dict()}
 
         model.load_state_dict(state_dict, strict=False)
+
+    else:
+        raise ValueError("Invalid model type")
 
     print("Test auc score: ", validate(model, test_dataset))
 
@@ -94,6 +97,9 @@ def validate(model, dataset):
                 ).squeeze().cpu().numpy()
                 preds[filename]= resized_preds
                 ground_truth[filename] = gt
+                # VISUALISE THE RESIZED PREDICTIONS
+                # plt.imshow(resized_preds)
+                # plt.show()
 
         # calculate AUC
         auc = calculate_auc(preds, ground_truth)
