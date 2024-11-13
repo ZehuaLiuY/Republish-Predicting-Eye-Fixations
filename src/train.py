@@ -14,6 +14,7 @@ from dataset import MIT, load_ground_truth
 import argparse
 from pathlib import Path
 from MrCNN import MrCNN
+from MrCNNs import MrCNNs
 from metrics import calculate_auc
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
@@ -95,7 +96,11 @@ def main(args):
 
     # MrCNN model
     # TODO: Change the parameters
-    model = MrCNN()
+    # model with separate branches
+    # model = MrCNN()
+
+    # model with shared branches
+    model = MrCNNs()
 
     criterion = nn.BCELoss()
 
