@@ -29,7 +29,9 @@ class MrCNNs(nn.Module):
         with torch.no_grad():
             norm = conv1.weight.norm(2, dim=(1, 2, 3), keepdim=True)
             desired_norm = torch.clamp(norm, max=0.1)
-            conv1.weight *= desired_norm / (norm + 1e-8)
+            # conv1.weight *= desired_norm / (norm + 1e-8)
+            new_weight = conv1.weight * desired_norm / (norm + 1e-8)
+            conv1.weight = nn.Parameter(new_weight)
 
         x = F.relu(conv1(x))
         x = self.pool(x)
