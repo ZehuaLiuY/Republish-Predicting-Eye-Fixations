@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import torch
 import torch.backends.cudnn
+from accelerate.commands.config.update import description
+
 from dataset import MIT, load_ground_truth
 import argparse
 from pathlib import Path
@@ -10,6 +12,8 @@ import matplotlib.pyplot as plt
 import torch.nn.functional as F
 from tqdm import tqdm
 
+from MrCNNs import MrCNNs
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # device = 'cpu'
 torch.backends.cudnn.benchmark = True
@@ -17,6 +21,11 @@ torch.backends.cudnn.benchmark = True
 parser = argparse.ArgumentParser(
     description="Republish Predicting Eye Fixations",
     formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+)
+parser.add_argument(
+    '--model',
+    choices=['MrCNN', 'MrCNNs'], default='MrCNN',
+    help="Choose model type: 'MrCNN' for separate branches or 'MrCNNs' for shared branches"
 )
 
 
@@ -34,10 +43,19 @@ def main(args):
     if not Path(test_ground_truth_path).exists():
         load_ground_truth(dataset=test_dataset, img_dataset_path='../dataset/ALLFIXATIONMAPS', target_folder_path=test_ground_truth_path)
 
-    # MrCNN model
-    model = MrCNN()
-    state_dict = torch.load(args.model_path, weights_only=True)
-    model.load_state_dict(state_dict)
+    if args.model == 'MrCNN':
+        model = MrCNN()
+        state_dict = torch.load(args.model_path, weights_only=True)
+        model.load_state_dict(state_dict)
+
+    elif args.model == 'MrCNNs':
+        model = MrCNNs()
+
+        checkpoint = torch.load(args.model_path, weights_only=True)
+        state_dict = checkpoint.get("model", checkpoint)
+        state_dict = {k: v for k, v in state_dict.items() if k in model.state_dict()}
+
+        model.load_state_dict(state_dict, strict=False)
 
     print("Test auc score: ", validate(model, test_dataset))
 
