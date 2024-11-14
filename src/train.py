@@ -16,7 +16,7 @@ from pathlib import Path
 from MrCNN import MrCNN
 from MrCNNs import MrCNNs
 
-from metrics import calculate_auc, calculate_roc_with_shuffle
+from metrics import calculate_auc, calculate_auc_with_shuffle
 
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
@@ -199,9 +199,8 @@ class Trainer:
             total_accuracy = 0
             num_batches = len(self.train_loader)
             
-            
             for batch in self.train_loader:
-                img,label = batch
+                img, label = batch
                 img_400_crop = img[:, 0, :, :, :].to(device)
                 img_250_crop = img[:, 1, :, :, :].to(device)
                 img_150_crop = img[:, 2, :, :, :].to(device)
@@ -217,8 +216,8 @@ class Trainer:
                 self.optimizer.zero_grad()
                 with torch.no_grad():
                     preds = output
-                    accuracy = get_accuracy(preds,label)
-                    total_accuracy += accuracy # accumulate accuracy
+                    accuracy = get_accuracy(preds, label)
+                    total_accuracy += accuracy  # accumulate accuracy
 
                 data_load_time = data_load_end_time - data_load_start_time
                 step_time = time.time() - data_load_end_time
@@ -236,9 +235,6 @@ class Trainer:
                 avg_epoch_accuracy = total_accuracy / num_batches
             print(f"epoch: [{epoch + 1}], " f"Average Loss: {avg_epoch_loss:.5f}," f"Average Accuracy: {avg_epoch_accuracy:.2f}")
                 
-            # print(f'Epoch {epoch + 1}, Loss: {loss.item()}')
-            # Average validation loss and accuracy
-            # avg_val_loss = loss / len(self.val_loader)
             self.schedular.step()
             self.summary_writer.add_scalar("epoch", epoch, self.step)
 
@@ -365,13 +361,12 @@ class Trainer:
                 auc = calculate_auc(preds, ground_truth)
             else:
                 # calculate shuffled-AUC
-                auc = calculate_roc_with_shuffle(preds, ground_truth)
+                auc = calculate_auc_with_shuffle(preds, ground_truth)
 
             return auc
 
 
-
-def get_accuracy (preds, y,threshold=0.5):
+def get_accuracy(preds, y,threshold=0.5):
     tp = tn = fp = fn = 0
     pred_binary = [1 if p > threshold else 0 for p in preds]
     for i in range(len(y)):
