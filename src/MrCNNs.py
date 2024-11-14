@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -7,6 +8,7 @@ import matplotlib.pyplot as plt
 class MrCNNs(nn.Module):
     def __init__(self):
         super().__init__()
+        self.visualization_counter = 1
         ## Convolutional layers for each branch
         self.conv1 = nn.Conv2d(3, 96, kernel_size=7, stride=1, padding=0)
         self.conv2 = nn.Conv2d(96, 160, kernel_size=3, stride=1, padding=0)
@@ -43,8 +45,10 @@ class MrCNNs(nn.Module):
         self.visualize_feature_map(x, layer_name="conv1")
         x = self.pool(x)
         x = F.relu(conv2(x))
+        self.visualize_feature_map(x, layer_name="conv2")
         x = self.pool(x)
         x = F.relu(conv3(x))
+        self.visualize_feature_map(x, layer_name="conv3")
         x = self.droupout(x)
         x = self.pool(x)
         # print(f'before view x.shape: {x.shape}')
@@ -76,10 +80,20 @@ class MrCNNs(nn.Module):
             nn.init.kaiming_normal_(layer.weight)
 
     def visualize_feature_map(self, x, layer_name):
-        x = x.detach().cpu().numpy()
-        fig, axes = plt.subplots(1, min(8, x.shape[1]), figsize=(20, 10))
-        for i in range(min(8, x.shape[1])):
-            axes[i].imshow(x[0, i], cmap='viridis')
-            axes[i].axis('off')
-        fig.suptitle(f"Feature maps after {layer_name}")
-        plt.show()
+        folder_path = f"../feature_maps/{layer_name}"
+        os.makedirs(folder_path, exist_ok=True)
+
+        x = x[:8].detach().cpu().numpy()
+        fig, axes = plt.subplots(8, min(8, x.shape[1]), figsize=(20, 10))
+
+        for sample_idx in range(8):
+            for i in range(min(8, x.shape[1])):
+                axes[sample_idx, i].imshow(x[sample_idx, i], cmap='viridis')
+                axes[sample_idx, i].axis('off')
+            fig.suptitle(f"Feature maps after {layer_name} - Sample {sample_idx}")
+
+            plt.savefig(f"{folder_path}/{layer_name}_visualization_{self.visualization_counter}.png")
+            plt.close(fig)
+
+        # 计数器递增
+        self.visualization_counter += 1
