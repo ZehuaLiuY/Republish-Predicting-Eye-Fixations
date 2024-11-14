@@ -262,7 +262,7 @@ class Trainer:
                 print(f"Best model so far saved at {checkpoint_file}")
 
 
-            if ((epoch + 1) % self.checkpoint_frequency) == 0:
+            if ((epoch + 1) % self.checkpoint_frequency) == 0 and (epoch + 1) != epochs:
                 checkpoint_file = os.path.join(self.checkpoint_path, f"epoch_{epoch+ 1}.pth")
                 torch.save({
                     'args': args,
@@ -281,7 +281,7 @@ class Trainer:
                     }, checkpoint_file)
                     print(f"the final model is the best model, saved at {checkpoint_file}")
                 else:
-                    checkpoint_file = os.path.join(self.checkpoint_path, f"final_best_model.pth")
+                    checkpoint_file = os.path.join(self.checkpoint_path, f"final_model.pth")
                     torch.save({
                         'args': args,
                         'model': self.model.state_dict(),
