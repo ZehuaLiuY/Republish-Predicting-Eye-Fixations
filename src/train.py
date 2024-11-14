@@ -33,7 +33,7 @@ parser = argparse.ArgumentParser(
 default_dataset_dir = Path.home() / ".cache" / "torch" / "datasets"
 
 parser.add_argument("--log-dir", default=Path("logs"), type=Path)
-parser.add_argument("--learning-rate", default=1e-2, type=float, help="Learning rate")
+parser.add_argument("--learning-rate", default=0.001, type=float, help="Learning rate")
 parser.add_argument(
     "--batch-size",
     default=128,
@@ -111,7 +111,7 @@ def main(args):
 
     criterion = nn.BCELoss()
 
-    optimizer = Adam(model.parameters(), lr=0.001)
+    optimizer = Adam(model.parameters(), lr=args.learning_rate)
 
     schedular = torch.optim.lr_scheduler.StepLR(optimizer, step_size = 20, gamma = 0.1)
 
@@ -396,10 +396,9 @@ def get_summary_writer_log_dir(args: argparse.Namespace) -> str:
     """
     tb_log_dir_prefix =(
             f"{args.model}_"
-            f"dropout={args.dropout}_"
             f"bs={args.batch_size}_"
             f"lr={args.learning_rate}_"
-            f"momentum=0.9_" +
+            f"Adam" +
             f"run_"
     )
     i = 0
