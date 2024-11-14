@@ -105,7 +105,7 @@ def main(args):
     if args.model == 'MrCNN':
         model = MrCNN()
     elif args.model == 'MrCNNs':
-        model = MrCNNs()
+        model = MrCNNs(first_batch_only=True, visualize=True)
     else:
         raise ValueError(f"Unknown model type: {args.model}")
 
@@ -398,7 +398,7 @@ def get_summary_writer_log_dir(args: argparse.Namespace) -> str:
             f"{args.model}_"
             f"bs={args.batch_size}_"
             f"lr={args.learning_rate}_"
-            f"Adam" +
+            f"Adam_" +
             f"run_"
     )
     i = 0
