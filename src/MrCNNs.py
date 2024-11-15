@@ -57,6 +57,13 @@ class MrCNNs(nn.Module):
         return x
 
     def forward(self, input1, input2, input3):
+        # Ensure the first batch of each epoch visualizes feature maps
+        if self.first_batch_only and not self.first_batch_processed:
+            self.visualize = True
+            self.first_batch_processed = True
+        else:
+            self.visualize = False
+            
         # 每个 epoch 重置 first_batch_processed 标志
         self.first_batch_processed = False
         branch1_output = self.forward_branch(input1, input1, self.conv1, self.conv2, self.conv3)

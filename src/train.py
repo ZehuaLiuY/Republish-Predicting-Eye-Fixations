@@ -194,6 +194,8 @@ class Trainer:
         current_auc = 0
         for epoch in range(start_epoch, epochs):
             self.model.train()
+            # Reset `first_batch_processed` at the start of each epoch
+            self.model.first_batch_processed = False
             data_load_start_time = time.time()
             total_loss = 0
             total_accuracy = 0
