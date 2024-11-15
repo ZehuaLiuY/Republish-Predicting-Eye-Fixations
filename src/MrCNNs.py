@@ -86,14 +86,14 @@ class MrCNNs(nn.Module):
         os.makedirs(folder_path, exist_ok=True)
 
         x = (x - x.min()) / (x.max() - x.min())
-        x = x[:3].detach().cpu().numpy()
+        x = x.detach().cpu().numpy()
 
-        original_input = original_input[:3].detach().cpu().numpy()
+        original_input = original_input.detach().cpu().numpy()
         original_input = (original_input - original_input.min()) / (original_input.max() - original_input.min())
 
         num_feature_maps = min(num_feature_maps, x.shape[1])
 
-        for sample_idx in range(3):
+        for sample_idx in range(1):
             fig, axes = plt.subplots(2, num_feature_maps, figsize=(20, 10))
 
             for i in range(num_feature_maps):

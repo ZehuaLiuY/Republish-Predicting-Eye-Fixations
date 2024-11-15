@@ -87,7 +87,7 @@ parser.add_argument(
 
 parser.add_argument(
     "--model",
-    choices=['MrCNN', 'MrCNNs'], default='MrCNN',
+    choices=['MrCNN', 'MrCNNs'], default='MrCNNs',
     help="Choose model type: 'MrCNN' for separate branches or 'MrCNNs' for shared branches"
 )
 
@@ -352,11 +352,7 @@ class Trainer:
                     ).squeeze().cpu().numpy()
                     preds[filename]= resized_preds
                     ground_truth[filename] = gt
-                    # preds[sample_index] = single_img_preds
-                    # val_dataset.__getfile__(index)["file"]
-                    # gt = plt.imread(f'../dataset/val_ground_truth/{self.val_dataset.__getfile__(index)["file"]}_fixMap.jpg')
-                    # gt = torch.tensor(gt).float()
-                    # my_dict['city'] = 'New York'
+
             auc = 0
             if not shuffle:
                 # calculate AUC
