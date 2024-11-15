@@ -243,12 +243,16 @@ class Trainer:
             if ((epoch + 1) % val_frequency) == 0:
                 self.model.eval()
 
-                auc = self.validate()
-                current_auc = auc
-                print(f"Epoch {epoch + 1} validation AUC score {auc}")
+                auc, shuffle_auc = self.validate()
 
-                shuffle_auc = self.validate(shuffle=True)
+                # using the shuffled AUC score as the benchmark for the best model
+                current_auc = shuffle_auc
+                print(f"Epoch {epoch + 1} validation AUC score {auc}")
                 print(f"Epoch {epoch + 1} validation AUC score {shuffle_auc}")
+
+                # add the auc and shuffle_auc to tensorboard
+                self.summary_writer.add_scalar("AUC", auc, self.step)
+                self.summary_writer.add_scalar("Shuffled AUC", shuffle_auc, self.step)
 
                 # self.validate() will put the model in validation mode,
                 # so we have to switch back to train mode afterwards
@@ -319,7 +323,7 @@ class Trainer:
         )
 
     # TODO: Implement the validate method
-    def validate(self, shuffle=False):
+    def validate(self):
         ground_truth = {}
         preds = {}
         single_img_preds = torch.zeros(50, 50)
@@ -353,15 +357,14 @@ class Trainer:
                     preds[filename]= resized_preds
                     ground_truth[filename] = gt
 
-            auc = 0
-            if not shuffle:
-                # calculate AUC
-                auc = calculate_auc(preds, ground_truth)
-            else:
-                # calculate shuffled-AUC
-                auc = calculate_auc_with_shuffle(preds, ground_truth)
 
-            return auc
+            # calculate AUC
+            auc = calculate_auc(preds, ground_truth)
+
+            # calculate shuffled-AUC
+            shuffle_auc = calculate_auc_with_shuffle(preds, ground_truth)
+
+            return auc, shuffle_auc
 
 
 def get_accuracy(preds, y,threshold=0.5):
