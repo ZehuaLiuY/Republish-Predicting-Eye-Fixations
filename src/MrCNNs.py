@@ -78,37 +78,43 @@ class MrCNNs(nn.Module):
         output = torch.sigmoid(self.output(combined))
         return output
 
-    def visualize_feature_map(self, x, original_input, layer_name, num_feature_maps=3):
+    def visualize_feature_map(self, x, original_input, layer_name, num_feature_maps=1):
         if not self.visualize or (self.first_batch_only and self.first_batch_processed):
             return
 
         folder_path = f"../feature_maps/{layer_name}"
         os.makedirs(folder_path, exist_ok=True)
 
+        # Normalize feature map and input image
         x = (x - x.min()) / (x.max() - x.min())
         x = x.detach().cpu().numpy()
 
         original_input = original_input.detach().cpu().numpy()
         original_input = (original_input - original_input.min()) / (original_input.max() - original_input.min())
 
-        num_feature_maps = min(num_feature_maps, x.shape[1])
+        # Select only one feature map for visualization
+        num_feature_maps = min(num_feature_maps, x.shape[1])  # Ensure it's within valid range
 
-        for sample_idx in range(1):
-            fig, axes = plt.subplots(2, num_feature_maps, figsize=(20, 10))
+        for sample_idx in range(1):  # Visualize only the first sample
+            fig, axes = plt.subplots(2, 1, figsize=(10, 10))  # Only 1 feature map
 
-            for i in range(num_feature_maps):
-                axes[0, i].imshow(original_input[sample_idx].transpose(1, 2, 0))
-                axes[0, i].axis('off')
+            # Plot the original input image
+            axes[0].imshow(original_input[sample_idx].transpose(1, 2, 0))
+            axes[0].axis('off')
+            axes[0].set_title("Original Input Image")
 
-            for i in range(num_feature_maps):
-                axes[1, i].imshow(x[sample_idx, i], cmap='viridis')
-                axes[1, i].axis('off')
+            # Plot a single feature map
+            axes[1].imshow(x[sample_idx, 0], cmap='viridis')  # Only the first feature map
+            axes[1].axis('off')
+            axes[1].set_title(f"Feature Map 1 - {layer_name}")
 
-            fig.suptitle(f"Original and Feature maps after {layer_name} - Sample {sample_idx}")
+            # Save the visualization
+            fig.suptitle(f"Original and Feature Map after {layer_name} - Sample {sample_idx}")
             plt.savefig(f"{folder_path}/{layer_name}_visualization_{self.visualization_counter}_sample_{sample_idx}.png")
             plt.close(fig)
 
         self.visualization_counter += 1
+
 
     @staticmethod
     def initialise_layer(layer):
