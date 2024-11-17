@@ -1,7 +1,8 @@
 import numpy as np
 from scipy.integrate import simps
 import random
-from skimage.transform import resize
+
+from scipy.ndimage import zoom
 
 
 def roc_auc(pred, target, n_points=20, include_prior=False):
@@ -44,24 +45,30 @@ def calculate_auc(preds, targets):
     return mean_auc
 
 
-def calculate_roc_with_shuffle(preds, targets):
+def calculate_auc_with_shuffle(preds, targets):
     assert preds.keys() == targets.keys()
 
     keys = list(preds.keys())
+    num_permutations = 100  # shuffled 100 times
 
     mean_auc = 0
-    for key in keys:
-        shuffled_pred = preds[key]
+    for _ in range(num_permutations):
+        current_auc = 0
+        for key in keys:
+            shuffled_pred = preds[key]
 
-        # Randomly select a different target as the "shuffled" target
-        random_target_key = random.choice([k for k in keys if k != key])
-        shuffled_target = targets[random_target_key]
-        # Check shape and adjust
-        if shuffled_pred.shape != shuffled_target.shape:
+            # randomly select a key
+            random_target_key = random.choice([k for k in keys if k != key])
+            shuffled_target = targets[random_target_key]
 
-            shuffled_target = resize(shuffled_target, shuffled_pred.shape, anti_aliasing=True)
+            # check the shape and adjust it
+            if shuffled_pred.shape != shuffled_target.shape:
+                zoom_factor = np.array(shuffled_pred.shape) / np.array(shuffled_target.shape)
+                shuffled_target = zoom(shuffled_target, zoom_factor, order=1)
 
-        mean_auc += roc_auc(shuffled_pred, shuffled_target)
+            current_auc += roc_auc(shuffled_pred, shuffled_target)
 
-    mean_auc /= len(preds.keys())
+        mean_auc += current_auc / len(preds.keys())
+
+    mean_auc /= num_permutations
     return mean_auc

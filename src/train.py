@@ -16,7 +16,7 @@ from pathlib import Path
 from MrCNN import MrCNN
 from MrCNNs import MrCNNs
 
-from metrics import calculate_auc, calculate_roc_with_shuffle
+from metrics import calculate_auc, calculate_auc_with_shuffle
 
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
@@ -33,7 +33,7 @@ parser = argparse.ArgumentParser(
 default_dataset_dir = Path.home() / ".cache" / "torch" / "datasets"
 
 parser.add_argument("--log-dir", default=Path("logs"), type=Path)
-parser.add_argument("--learning-rate", default=1e-2, type=float, help="Learning rate")
+parser.add_argument("--learning-rate", default=0.001, type=float, help="Learning rate")
 parser.add_argument(
     "--batch-size",
     default=128,
@@ -87,7 +87,7 @@ parser.add_argument(
 
 parser.add_argument(
     "--model",
-    choices=['MrCNN', 'MrCNNs'], default='MrCNN',
+    choices=['MrCNN', 'MrCNNs'], default='MrCNNs',
     help="Choose model type: 'MrCNN' for separate branches or 'MrCNNs' for shared branches"
 )
 
@@ -105,13 +105,13 @@ def main(args):
     if args.model == 'MrCNN':
         model = MrCNN()
     elif args.model == 'MrCNNs':
-        model = MrCNNs()
+        model = MrCNNs(first_batch_only=True, visualize=True)
     else:
         raise ValueError(f"Unknown model type: {args.model}")
 
     criterion = nn.BCELoss()
 
-    optimizer = Adam(model.parameters(), lr=0.001)
+    optimizer = Adam(model.parameters(), lr=args.learning_rate)
 
     schedular = torch.optim.lr_scheduler.StepLR(optimizer, step_size = 20, gamma = 0.1)
 
@@ -194,14 +194,15 @@ class Trainer:
         current_auc = 0
         for epoch in range(start_epoch, epochs):
             self.model.train()
+            # Reset `first_batch_processed` at the start of each epoch
+            self.model.first_batch_processed = False
             data_load_start_time = time.time()
             total_loss = 0
             total_accuracy = 0
             num_batches = len(self.train_loader)
             
-            
             for batch in self.train_loader:
-                img,label = batch
+                img, label = batch
                 img_400_crop = img[:, 0, :, :, :].to(device)
                 img_250_crop = img[:, 1, :, :, :].to(device)
                 img_150_crop = img[:, 2, :, :, :].to(device)
@@ -217,8 +218,8 @@ class Trainer:
                 self.optimizer.zero_grad()
                 with torch.no_grad():
                     preds = output
-                    accuracy = get_accuracy(preds,label)
-                    total_accuracy += accuracy # accumulate accuracy
+                    accuracy = get_accuracy(preds, label)
+                    total_accuracy += accuracy  # accumulate accuracy
 
                 data_load_time = data_load_end_time - data_load_start_time
                 step_time = time.time() - data_load_end_time
@@ -236,21 +237,22 @@ class Trainer:
                 avg_epoch_accuracy = total_accuracy / num_batches
             print(f"epoch: [{epoch + 1}], " f"Average Loss: {avg_epoch_loss:.5f}," f"Average Accuracy: {avg_epoch_accuracy:.2f}")
                 
-            # print(f'Epoch {epoch + 1}, Loss: {loss.item()}')
-            # Average validation loss and accuracy
-            # avg_val_loss = loss / len(self.val_loader)
             self.schedular.step()
             self.summary_writer.add_scalar("epoch", epoch, self.step)
 
             if ((epoch + 1) % val_frequency) == 0:
                 self.model.eval()
 
-                auc = self.validate()
-                current_auc = auc
-                print(f"Epoch {epoch + 1} validation AUC score {auc}")
+                auc, shuffle_auc = self.validate()
 
-                shuffle_auc = self.validate(shuffle=True)
+                # using the shuffled AUC score as the benchmark for the best model
+                current_auc = shuffle_auc
+                print(f"Epoch {epoch + 1} validation AUC score {auc}")
                 print(f"Epoch {epoch + 1} validation AUC score {shuffle_auc}")
+
+                # add the auc and shuffle_auc to tensorboard
+                self.summary_writer.add_scalar("AUC", auc, self.step)
+                self.summary_writer.add_scalar("Shuffled AUC", shuffle_auc, self.step)
 
                 # self.validate() will put the model in validation mode,
                 # so we have to switch back to train mode afterwards
@@ -262,7 +264,7 @@ class Trainer:
                 print(f"Best model so far saved at {checkpoint_file}")
 
 
-            if ((epoch + 1) % self.checkpoint_frequency) == 0:
+            if ((epoch + 1) % self.checkpoint_frequency) == 0 and (epoch + 1) != epochs:
                 checkpoint_file = os.path.join(self.checkpoint_path, f"epoch_{epoch+ 1}.pth")
                 torch.save({
                     'args': args,
@@ -281,7 +283,7 @@ class Trainer:
                     }, checkpoint_file)
                     print(f"the final model is the best model, saved at {checkpoint_file}")
                 else:
-                    checkpoint_file = os.path.join(self.checkpoint_path, f"final_best_model.pth")
+                    checkpoint_file = os.path.join(self.checkpoint_path, f"final_model.pth")
                     torch.save({
                         'args': args,
                         'model': self.model.state_dict(),
@@ -321,7 +323,7 @@ class Trainer:
         )
 
     # TODO: Implement the validate method
-    def validate(self, shuffle=False):
+    def validate(self):
         ground_truth = {}
         preds = {}
         single_img_preds = torch.zeros(50, 50)
@@ -354,24 +356,18 @@ class Trainer:
                     ).squeeze().cpu().numpy()
                     preds[filename]= resized_preds
                     ground_truth[filename] = gt
-                    # preds[sample_index] = single_img_preds
-                    # val_dataset.__getfile__(index)["file"]
-                    # gt = plt.imread(f'../dataset/val_ground_truth/{self.val_dataset.__getfile__(index)["file"]}_fixMap.jpg')
-                    # gt = torch.tensor(gt).float()
-                    # my_dict['city'] = 'New York'
-            auc = 0
-            if not shuffle:
-                # calculate AUC
-                auc = calculate_auc(preds, ground_truth)
-            else:
-                # calculate shuffled-AUC
-                auc = calculate_roc_with_shuffle(preds, ground_truth)
-
-            return auc
 
 
+            # calculate AUC
+            auc = calculate_auc(preds, ground_truth)
 
-def get_accuracy (preds, y,threshold=0.5):
+            # calculate shuffled-AUC
+            shuffle_auc = calculate_auc_with_shuffle(preds, ground_truth)
+
+            return auc, shuffle_auc
+
+
+def get_accuracy(preds, y,threshold=0.5):
     tp = tn = fp = fn = 0
     pred_binary = [1 if p > threshold else 0 for p in preds]
     for i in range(len(y)):
@@ -401,10 +397,9 @@ def get_summary_writer_log_dir(args: argparse.Namespace) -> str:
     """
     tb_log_dir_prefix =(
             f"{args.model}_"
-            f"dropout={args.dropout}_"
             f"bs={args.batch_size}_"
             f"lr={args.learning_rate}_"
-            f"momentum=0.9_" +
+            f"Adam_" +
             f"run_"
     )
     i = 0

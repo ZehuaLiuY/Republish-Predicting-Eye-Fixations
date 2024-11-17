@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 import torch
 import torch.backends.cudnn
-from accelerate.commands.config.update import description
+# from accelerate.commands.config.update import description
 
 from dataset import MIT, load_ground_truth
 import argparse
 from pathlib import Path
 from MrCNN import MrCNN
-from metrics import calculate_auc, calculate_roc_with_shuffle
+from metrics import calculate_auc, calculate_auc_with_shuffle
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 from tqdm import tqdm
@@ -112,7 +112,7 @@ def validate(model, dataset):
         # print("Non-shuffled Test auc score: ", auc)
 
         # calculate shuffled-AUC
-        shuffled_auc = calculate_roc_with_shuffle(preds, ground_truth)
+        shuffled_auc = calculate_auc_with_shuffle(preds, ground_truth)
         # print("Shuffled Test auc score: ", shuffled_auc)
 
         return auc, shuffled_auc
