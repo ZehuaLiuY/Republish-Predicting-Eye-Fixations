@@ -92,12 +92,14 @@ parser.add_argument(
 )
 
 def main(args):
+    # load the cooresponding dataset
     train_dataset_path = '../dataset/train_data.pth.tar'
     train_dataset = MIT(train_dataset_path)
 
     val_dataset_path = '../dataset/val_data.pth.tar'
     val_dataset = MIT(val_dataset_path)
 
+    # load the ground truth for the validation dataset, if not already loaded
     val_ground_truth_path = '../dataset/val_ground_truth'
     if not Path(val_ground_truth_path).exists():
         load_ground_truth(dataset=val_dataset, img_dataset_path='../dataset/ALLFIXATIONMAPS', target_folder_path=val_ground_truth_path)
@@ -194,6 +196,7 @@ class Trainer:
         current_auc = 0
         for epoch in range(start_epoch, epochs):
             self.model.train()
+            # For feature map visulisation:
             # Reset `first_batch_processed` at the start of each epoch
             self.model.first_batch_processed = False
             data_load_start_time = time.time()
@@ -203,17 +206,20 @@ class Trainer:
             
             for batch in self.train_loader:
                 img, label = batch
+                # separate the three inputs, each sampled from different resolution
                 img_400_crop = img[:, 0, :, :, :].to(device)
                 img_250_crop = img[:, 1, :, :, :].to(device)
                 img_150_crop = img[:, 2, :, :, :].to(device)
                 data_load_end_time = time.time()
 
                 output = self.model(img_400_crop, img_250_crop, img_150_crop)
+                # training set label
                 label = label.view(-1, 1).float().to(device)
                 loss = self.criterion(output, label)
                 total_loss += loss.item() # accumulate loss
-                loss.backward()
 
+                # optimising the model
+                loss.backward()
                 self.optimizer.step()
                 self.optimizer.zero_grad()
                 with torch.no_grad():
@@ -221,6 +227,7 @@ class Trainer:
                     accuracy = get_accuracy(preds, label)
                     total_accuracy += accuracy  # accumulate accuracy
 
+                # print the metrics
                 data_load_time = data_load_end_time - data_load_start_time
                 step_time = time.time() - data_load_end_time
                 if ((self.step + 1) % log_frequency) == 0:
@@ -240,6 +247,7 @@ class Trainer:
             self.schedular.step()
             self.summary_writer.add_scalar("epoch", epoch, self.step)
 
+            # get the validation AUC score
             if ((epoch + 1) % val_frequency) == 0:
                 self.model.eval()
 
@@ -256,14 +264,16 @@ class Trainer:
 
                 # self.validate() will put the model in validation mode,
                 # so we have to switch back to train mode afterwards
-                # self.model.train()
+                # self.model.train() line 198
+
+            # save the best model, using the shuffled AUC score as the benchmark
             if current_auc > best_auc:
                 best_auc = current_auc
                 checkpoint_file = os.path.join(self.checkpoint_path, f"best.pth")
                 torch.save(self.model.state_dict(), checkpoint_file)
                 print(f"Best model so far saved at {checkpoint_file}")
 
-
+            # checkpoint frequency saving
             if ((epoch + 1) % self.checkpoint_frequency) == 0 and (epoch + 1) != epochs:
                 checkpoint_file = os.path.join(self.checkpoint_path, f"epoch_{epoch+ 1}.pth")
                 torch.save({
@@ -273,6 +283,7 @@ class Trainer:
                 }, checkpoint_file)
                 print(f"Checkpoint saved at {checkpoint_file}")
 
+            # final model saving, if the current model is the best model, save it as the final best model
             if (epoch + 1) == epochs:
                 if current_auc > best_auc:
                     checkpoint_file = os.path.join(self.checkpoint_path, f"final_best_model.pth")
@@ -291,6 +302,7 @@ class Trainer:
                     }, checkpoint_file)
                     print(f"final model saved at {checkpoint_file}")
 
+    # print the metrics, in each step
     def print_metrics(self, epoch, accuracy, loss, data_load_time, step_time):
         epoch_step = self.step % len(self.train_loader)
         print(
@@ -303,6 +315,7 @@ class Trainer:
             f"step time: {step_time:.5f}"
         )
 
+    # summary writer log metrics
     def log_metrics(self, epoch, accuracy, loss, data_load_time, step_time):
         self.summary_writer.add_scalar("epoch", epoch, self.step)
         self.summary_writer.add_scalars(
@@ -322,27 +335,32 @@ class Trainer:
             "time/data", step_time, self.step
         )
 
-    # TODO: Implement the validate method
+    # validate the model
     def validate(self):
+        # two dictionaries to store the ground truth and the predictions
         ground_truth = {}
         preds = {}
+        # initialise the single prediction tensor
         single_img_preds = torch.zeros(50, 50)
         with torch.no_grad():
             for index in tqdm(range(self.val_dataset.__len__()), desc="Validation"):
+                # get the crop index
                 crop_index = index % 2500
+                # put them in the 50x50 grid
                 crop_x = crop_index % 50
                 crop_y = crop_index // 50
+                # get the validation inputs
                 img, label = self.val_dataset.__getitem__(index)  # no label
                 img_400_crop = img[0, :, :, :].unsqueeze(0).to(device)
-                # print(img_400_crop.shape)
                 img_250_crop = img[1, :, :, :].unsqueeze(0).to(device)
-                # print(img_250_crop.shape)
                 img_150_crop = img[2, :, :, :].unsqueeze(0).to(device)
-                # print(img_150_crop.shape)
 
                 output = self.model(img_400_crop, img_250_crop, img_150_crop)
+
+                # put the output in the single prediction tensor
                 single_img_preds[crop_y][crop_x] = output.squeeze().cpu()
 
+                # if the 50x50 grid is filled, resize the prediction to the ground truth size
                 if (index+1) % 2500 == 0:
                     filename = self.val_dataset.__getfile__(index)["file"]
                     gt = plt.imread(f'../dataset/val_ground_truth/{filename}_fixMap.jpg')
@@ -356,7 +374,8 @@ class Trainer:
                     ).squeeze().cpu().numpy()
                     preds[filename]= resized_preds
                     ground_truth[filename] = gt
-
+            # cause the calculate_auc is averaging the auc score of all the images
+            # so we just pass the two dictionaries once to get the average auc score
 
             # calculate AUC
             auc = calculate_auc(preds, ground_truth)
@@ -381,6 +400,16 @@ def get_accuracy(preds, y,threshold=0.5):
             fn += 1
     accuracy = (tp + tn) / (tp + tn + fp + fn) if (tp + tn + fp + fn) > 0 else 0
     return accuracy
+
+# def get_accuracy(preds, y, threshold=0.5):
+#     pred_binary = (preds > threshold).astype(int)
+#     tp = ((y == 1) & (pred_binary == 1)).sum()
+#     tn = ((y == 0) & (pred_binary == 0)).sum()
+#     fp = ((y == 0) & (pred_binary == 1)).sum()
+#     fn = ((y == 1) & (pred_binary == 0)).sum()
+#     total = tp + tn + fp + fn
+#     accuracy = (tp + tn) / total if total > 0 else 0
+#     return accuracy
 
 
 def get_summary_writer_log_dir(args: argparse.Namespace) -> str:
