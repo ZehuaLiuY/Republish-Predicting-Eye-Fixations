@@ -29,6 +29,7 @@ class MrCNNs(nn.Module):
         self.output = nn.Linear(512, 1)
 
     def forward_branch(self, x, original_input, conv1, conv2, conv3):
+        activations = {}  # Used to store the average activation value of each layer
         with torch.no_grad():
             norm = conv1.weight.norm(2, dim=(1, 2, 3), keepdim=True)
             desired_norm = torch.clamp(norm, max=0.1)
@@ -37,16 +38,19 @@ class MrCNNs(nn.Module):
         x = F.relu(conv1(x))
         if self.visualize and not self.first_batch_processed:
             self.visualize_feature_map(x, original_input, layer_name="conv1", num_feature_maps=3)
+        activations["conv1"] = x.mean().item()
         x = self.pool(x)
 
         x = F.relu(conv2(x))
         if self.visualize and not self.first_batch_processed:
             self.visualize_feature_map(x, original_input, layer_name="conv2", num_feature_maps=3)
+        activations["conv2"] = x.mean().item()
         x = self.pool(x)
 
         x = F.relu(conv3(x))
         if self.visualize and not self.first_batch_processed:
             self.visualize_feature_map(x, original_input, layer_name="conv3", num_feature_maps=3)
+        activations["conv3"] = x.mean().item()
         x = self.dropout(x)
         x = self.pool(x)
 
@@ -54,9 +58,10 @@ class MrCNNs(nn.Module):
         x = F.relu(self.branch_fc(x))
         x = self.dropout(x)
 
-        return x
+        return x, activations
 
-    def forward(self, input1, input2, input3):
+    def forward(self, input1, input2, input3, return_activations=False):
+        activations = []
         # Ensure the first batch of each epoch visualizes feature maps
         if self.first_batch_only and not self.first_batch_processed:
             self.visualize = True
@@ -64,11 +69,14 @@ class MrCNNs(nn.Module):
         else:
             self.visualize = False
             
-        # 每个 epoch 重置 first_batch_processed 标志
+        # Reset first_batch_processed flag every epoch
         self.first_batch_processed = False
-        branch1_output = self.forward_branch(input1, input1, self.conv1, self.conv2, self.conv3)
-        branch2_output = self.forward_branch(input2, input2, self.conv1, self.conv2, self.conv3)
-        branch3_output = self.forward_branch(input3, input3, self.conv1, self.conv2, self.conv3)
+        branch1_output, branch1_activations = self.forward_branch(input1, input1, self.conv1, self.conv2, self.conv3)
+        branch2_output, branch2_activations = self.forward_branch(input2, input2, self.conv1, self.conv2, self.conv3)
+        branch3_output, branch3_activations = self.forward_branch(input3, input3, self.conv1, self.conv2, self.conv3)
+
+        if return_activations:
+            activations.extend([branch1_activations, branch2_activations, branch3_activations])
 
         self.first_batch_processed = True
 
@@ -76,6 +84,10 @@ class MrCNNs(nn.Module):
         combined = F.relu(self.fc_combined(combined))
         combined = self.dropout(combined)
         output = torch.sigmoid(self.output(combined))
+
+        if return_activations:
+            return output, activations
+
         return output
 
     def visualize_feature_map(self, x, original_input, layer_name, num_feature_maps=1):
@@ -122,3 +134,5 @@ class MrCNNs(nn.Module):
             nn.init.zeros_(layer.bias)
         if hasattr(layer, "weight"):
             nn.init.kaiming_normal_(layer.weight)
+
+

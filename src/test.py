@@ -44,7 +44,6 @@ def main(args):
     if not Path(test_ground_truth_path).exists():
         load_ground_truth(dataset=test_dataset, img_dataset_path='../dataset/ALLFIXATIONMAPS', target_folder_path=test_ground_truth_path)
 
-
     if args.model == 'MrCNN':
         model = MrCNN()
         state_dict = torch.load(args.model_path, weights_only=True)
@@ -116,6 +115,8 @@ def validate(model, dataset):
         # print("Shuffled Test auc score: ", shuffled_auc)
 
         return auc, shuffled_auc
+
+
 
 
 if __name__ == "__main__":

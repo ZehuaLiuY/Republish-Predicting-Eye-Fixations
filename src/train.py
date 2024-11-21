@@ -42,7 +42,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--epochs",
-    default=10,
+    default=1,
     type=int,
     help="Number of epochs (passes through the entire dataset) to train for",
 )
@@ -302,6 +302,7 @@ class Trainer:
                     }, checkpoint_file)
                     print(f"final model saved at {checkpoint_file}")
 
+
     # print the metrics, in each step
     def print_metrics(self, epoch, accuracy, loss, data_load_time, step_time):
         epoch_step = self.step % len(self.train_loader)
@@ -385,7 +386,6 @@ class Trainer:
 
             return auc, shuffle_auc
 
-
 def get_accuracy(preds, y,threshold=0.5):
     tp = tn = fp = fn = 0
     pred_binary = [1 if p > threshold else 0 for p in preds]
@@ -400,16 +400,6 @@ def get_accuracy(preds, y,threshold=0.5):
             fn += 1
     accuracy = (tp + tn) / (tp + tn + fp + fn) if (tp + tn + fp + fn) > 0 else 0
     return accuracy
-
-# def get_accuracy(preds, y, threshold=0.5):
-#     pred_binary = (preds > threshold).astype(int)
-#     tp = ((y == 1) & (pred_binary == 1)).sum()
-#     tn = ((y == 0) & (pred_binary == 0)).sum()
-#     fp = ((y == 0) & (pred_binary == 1)).sum()
-#     fn = ((y == 1) & (pred_binary == 0)).sum()
-#     total = tp + tn + fp + fn
-#     accuracy = (tp + tn) / total if total > 0 else 0
-#     return accuracy
 
 
 def get_summary_writer_log_dir(args: argparse.Namespace) -> str:
