@@ -256,7 +256,7 @@ class Trainer:
                 # using the shuffled AUC score as the benchmark for the best model
                 current_auc = shuffle_auc
                 print(f"Epoch {epoch + 1} validation AUC score {auc}")
-                print(f"Epoch {epoch + 1} validation AUC score {shuffle_auc}")
+                print(f"Epoch {epoch + 1} validation Shuffled AUC score {shuffle_auc}")
 
                 # add the auc and shuffle_auc to tensorboard
                 self.summary_writer.add_scalar("AUC", auc, self.step)
