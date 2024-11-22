@@ -5,7 +5,7 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 
 class MrCNNs(nn.Module):
-    def __init__(self, first_batch_only=True, visualize=False):
+    def __init__(self, dropout = 0.5, first_batch_only=True, visualize=False):
         super().__init__()
         self.visualization_counter = 1
         self.first_batch_only = first_batch_only
@@ -23,7 +23,7 @@ class MrCNNs(nn.Module):
         self.initialise_layer(self.conv3)
 
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.dropout = nn.Dropout(0.5)
+        self.dropout = nn.Dropout(dropout)
         self.branch_fc = nn.Linear(2592, 512)
         self.fc_combined = nn.Linear(512 * 3, 512)
         self.output = nn.Linear(512, 1)

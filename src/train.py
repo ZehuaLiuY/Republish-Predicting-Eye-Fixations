@@ -75,7 +75,7 @@ parser.add_argument(
 
 parser.add_argument(
     "--dropout",
-    default=0,
+    default=0.5,
     type=float,
 )
 
@@ -106,9 +106,9 @@ def main(args):
         load_ground_truth(dataset=val_dataset, img_dataset_path='../dataset/ALLFIXATIONMAPS', target_folder_path=val_ground_truth_path)
 
     if args.model == 'MrCNN':
-        model = MrCNN()
+        model = MrCNN(dropout=args.dropout)
     elif args.model == 'MrCNNs':
-        model = MrCNNs(first_batch_only=True, visualize=True)
+        model = MrCNNs(dropout=args.dropout, first_batch_only=True, visualize=True)
     else:
         raise ValueError(f"Unknown model type: {args.model}")
 
@@ -428,6 +428,7 @@ def get_summary_writer_log_dir(args: argparse.Namespace) -> str:
             f"{args.model}_"
             f"bs={args.batch_size}_"
             f"lr={args.learning_rate}_"
+            f"dropout={args.dropout}_"
             f"Adam_" +
             f"run_"
     )
