@@ -6,6 +6,7 @@ import torch
 import torch.backends.cudnn
 from torch import nn
 from torch.optim import Adam
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -42,7 +43,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--epochs",
-    default=10,
+    default=20,
     type=int,
     help="Number of epochs (passes through the entire dataset) to train for",
 )
@@ -87,7 +88,7 @@ parser.add_argument(
 
 parser.add_argument(
     "--model",
-    choices=['MrCNN', 'MrCNNs'], default='MrCNNs',
+    choices=['MrCNN', 'MrCNNs'], default='MrCNN',
     help="Choose model type: 'MrCNN' for separate branches or 'MrCNNs' for shared branches"
 )
 
@@ -115,8 +116,7 @@ def main(args):
 
     optimizer = Adam(model.parameters(), lr=args.learning_rate)
 
-    schedular = torch.optim.lr_scheduler.StepLR(optimizer, step_size = 20, gamma = 0.1)
-
+    schedular = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, min_lr=1e-6)
     log_dir = get_summary_writer_log_dir(args)
     print(f"Writing logs to {log_dir}")
 
@@ -156,7 +156,7 @@ class Trainer:
             optimizer: Optimizer,
             summary_writer: SummaryWriter,
             device: torch.device,
-            schedular: torch.optim.lr_scheduler.StepLR,
+            schedular: ReduceLROnPlateau,
             checkpoint_path: str,
             checkpoint_frequency: int,
             args
@@ -239,12 +239,12 @@ class Trainer:
 
                 data_load_start_time = time.time()
                 
-                # The average batch loss and batch accuracy
-                avg_epoch_loss = total_loss / num_batches
-                avg_epoch_accuracy = total_accuracy / num_batches
+            # The average batch loss and batch accuracy
+            avg_epoch_loss = total_loss / num_batches
+            avg_epoch_accuracy = total_accuracy / num_batches
             print(f"epoch: [{epoch + 1}], " f"Average Loss: {avg_epoch_loss:.5f}," f"Average Accuracy: {avg_epoch_accuracy:.2f}")
                 
-            self.schedular.step()
+            self.schedular.step(metrics=avg_epoch_loss)
             self.summary_writer.add_scalar("epoch", epoch, self.step)
 
             # get the validation AUC score
