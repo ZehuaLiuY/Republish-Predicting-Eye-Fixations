@@ -62,7 +62,7 @@ class MrCNN(nn.Module):
         x = F.relu(self.branch_fc(x))
         # print(f'after view x.shape: {x.shape}')
         # add dropout layer after the FC layer
-        x = self.droupout(x)
+        x = self.dropout(x)
         return x
 
     def forward(self, input1, input2, input3):
