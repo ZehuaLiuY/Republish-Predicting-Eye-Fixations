@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class MrCNN(nn.Module):
-    def __init__(self):
+    def __init__(self, dropout = 0.5):
         super().__init__()
         ## Convolutional layers for each branch
         self.branch1_conv1 = nn.Conv2d(3, 96, kernel_size=7, stride=1, padding=0)
@@ -34,7 +34,7 @@ class MrCNN(nn.Module):
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
 
         # the paper uses a dropout layer with a rate of 0.5
-        self.dropout = nn.Dropout(0.5)
+        self.dropout = nn.Dropout(dropout)
 
         self.branch_fc = nn.Linear(2592, 512)
 
@@ -62,7 +62,7 @@ class MrCNN(nn.Module):
         x = F.relu(self.branch_fc(x))
         # print(f'after view x.shape: {x.shape}')
         # add dropout layer after the FC layer
-        x = self.droupout(x)
+        x = self.dropout(x)
         return x
 
     def forward(self, input1, input2, input3):
