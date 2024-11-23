@@ -6,6 +6,7 @@ import torch
 import torch.backends.cudnn
 from torch import nn
 from torch.optim import Adam
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -42,7 +43,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--epochs",
-    default=1,
+    default=20,
     type=int,
     help="Number of epochs (passes through the entire dataset) to train for",
 )
@@ -87,7 +88,7 @@ parser.add_argument(
 
 parser.add_argument(
     "--model",
-    choices=['MrCNN', 'MrCNNs'], default='MrCNNs',
+    choices=['MrCNN', 'MrCNNs'], default='MrCNN',
     help="Choose model type: 'MrCNN' for separate branches or 'MrCNNs' for shared branches"
 )
 
@@ -115,8 +116,7 @@ def main(args):
 
     optimizer = Adam(model.parameters(), lr=args.learning_rate)
 
-    schedular = torch.optim.lr_scheduler.StepLR(optimizer, step_size = 20, gamma = 0.1)
-
+    schedular = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, min_lr=1e-6)
     log_dir = get_summary_writer_log_dir(args)
     print(f"Writing logs to {log_dir}")
 
@@ -156,7 +156,7 @@ class Trainer:
             optimizer: Optimizer,
             summary_writer: SummaryWriter,
             device: torch.device,
-            schedular: torch.optim.lr_scheduler.StepLR,
+            schedular: ReduceLROnPlateau,
             checkpoint_path: str,
             checkpoint_frequency: int,
             args
@@ -239,12 +239,12 @@ class Trainer:
 
                 data_load_start_time = time.time()
                 
-                # The average batch loss and batch accuracy
-                avg_epoch_loss = total_loss / num_batches
-                avg_epoch_accuracy = total_accuracy / num_batches
+            # The average batch loss and batch accuracy
+            avg_epoch_loss = total_loss / num_batches
+            avg_epoch_accuracy = total_accuracy / num_batches
             print(f"epoch: [{epoch + 1}], " f"Average Loss: {avg_epoch_loss:.5f}," f"Average Accuracy: {avg_epoch_accuracy:.2f}")
                 
-            self.schedular.step()
+            self.schedular.step(metrics=avg_epoch_loss)
             self.summary_writer.add_scalar("epoch", epoch, self.step)
 
             # get the validation AUC score
@@ -301,7 +301,6 @@ class Trainer:
                         'epoch': epoch,
                     }, checkpoint_file)
                     print(f"final model saved at {checkpoint_file}")
-
 
     # print the metrics, in each step
     def print_metrics(self, epoch, accuracy, loss, data_load_time, step_time):
@@ -386,6 +385,7 @@ class Trainer:
 
             return auc, shuffle_auc
 
+
 def get_accuracy(preds, y,threshold=0.5):
     tp = tn = fp = fn = 0
     pred_binary = [1 if p > threshold else 0 for p in preds]
@@ -400,6 +400,16 @@ def get_accuracy(preds, y,threshold=0.5):
             fn += 1
     accuracy = (tp + tn) / (tp + tn + fp + fn) if (tp + tn + fp + fn) > 0 else 0
     return accuracy
+
+# def get_accuracy(preds, y, threshold=0.5):
+#     pred_binary = (preds > threshold).astype(int)
+#     tp = ((y == 1) & (pred_binary == 1)).sum()
+#     tn = ((y == 0) & (pred_binary == 0)).sum()
+#     fp = ((y == 0) & (pred_binary == 1)).sum()
+#     fn = ((y == 1) & (pred_binary == 0)).sum()
+#     total = tp + tn + fp + fn
+#     accuracy = (tp + tn) / total if total > 0 else 0
+#     return accuracy
 
 
 def get_summary_writer_log_dir(args: argparse.Namespace) -> str:

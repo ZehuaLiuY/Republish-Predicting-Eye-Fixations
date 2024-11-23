@@ -34,8 +34,7 @@ class MrCNN(nn.Module):
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
 
         # the paper uses a dropout layer with a rate of 0.5
-        # TODO: add this argument to parser to make it configurable
-        self.droupout = nn.Dropout(0.5)
+        self.dropout = nn.Dropout(0.5)
 
         self.branch_fc = nn.Linear(2592, 512)
 
@@ -56,7 +55,7 @@ class MrCNN(nn.Module):
         x = F.relu(conv2(x))
         x = self.pool(x)
         x = F.relu(conv3(x))
-        x = self.droupout(x)
+        x = self.dropout(x)
         x = self.pool(x)
         # print(f'before view x.shape: {x.shape}')
         x = torch.flatten(x, start_dim=1)
@@ -74,7 +73,7 @@ class MrCNN(nn.Module):
         combined = torch.cat((branch1_output, branch2_output, branch3_output), dim=1)
 
         combined = F.relu(self.fc_combined(combined))
-        combined = self.droupout(combined)
+        combined = self.dropout(combined)
 
         output = torch.sigmoid(self.output(combined))
         return output
