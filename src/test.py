@@ -28,6 +28,11 @@ parser.add_argument(
     help="Choose model type: 'MrCNN' for separate branches or 'MrCNNs' for shared branches"
 )
 
+parser.add_argument(
+    "--dropout",
+    default=0.5,
+    type=float,
+)
 
 parser.add_argument(
     "--model_path",
@@ -45,14 +50,17 @@ def main(args):
         load_ground_truth(dataset=test_dataset, img_dataset_path='../dataset/ALLFIXATIONMAPS', target_folder_path=test_ground_truth_path)
 
     if args.model == 'MrCNN':
-        model = MrCNN()
-        state_dict = torch.load(args.model_path, weights_only=True)
-        model.load_state_dict(state_dict)
+        model = MrCNN(dropout=args.dropout)
+        checkpoint = torch.load(args.model_path, weights_only=True)
+        state_dict = checkpoint.get("model", checkpoint)
+        state_dict = {k: v for k, v in state_dict.items() if k in model.state_dict()}
+
+        model.load_state_dict(state_dict, strict=False)
 
     elif args.model == 'MrCNNs':
-        model = MrCNNs()
+        model = MrCNNs(dropout=args.dropout, first_batch_only=False, visualize=False)
 
-        checkpoint = torch.load(args.model_path)
+        checkpoint = torch.load(args.model_path, weights_only=True)
         state_dict = checkpoint.get("model", checkpoint)
         state_dict = {k: v for k, v in state_dict.items() if k in model.state_dict()}
 
