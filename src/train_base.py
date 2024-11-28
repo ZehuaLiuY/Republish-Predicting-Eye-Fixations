@@ -43,7 +43,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--epochs",
-    default=20,
+    default=10,
     type=int,
     help="Number of epochs (passes through the entire dataset) to train for",
 )
@@ -123,7 +123,7 @@ def main(args):
         str(log_dir),
         flush_secs=5
     )
-    checkpoint_path = f'./checkpoint/{args.model}_run_{log_dir.split("_")[-1]}'
+    checkpoint_path = f'./checkpoint/{args.model}_base_run_{log_dir.split("_")[-1]}'
     if not Path(checkpoint_path).exists():
         Path(checkpoint_path).mkdir(parents=True, exist_ok=True)
 
@@ -432,6 +432,7 @@ def get_summary_writer_log_dir(args: argparse.Namespace) -> str:
             f"lr={args.learning_rate}_"
             f"dropout={args.dropout}_"
             f"Momentum_" +
+            f"base_"
             f"run_"
     )
     i = 0
