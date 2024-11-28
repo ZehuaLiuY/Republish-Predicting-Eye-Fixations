@@ -5,17 +5,16 @@ from multiprocessing import cpu_count
 import torch
 import torch.backends.cudnn
 from torch import nn
-from torch.optim import Adam
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.optim.optimizer import Optimizer
+from torch.optim import SGD
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from dataset import MIT, load_ground_truth
 import argparse
 from pathlib import Path
 
-from MrCNN import MrCNN
-from MrCNNs import MrCNNs
+from MrCNNs_base import MrCNNs
 
 from metrics import calculate_auc, calculate_auc_with_shuffle
 
@@ -23,8 +22,9 @@ import matplotlib.pyplot as plt
 import torch.nn.functional as F
 from tqdm import tqdm
 
+from src.MrCNN import MrCNN
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# device = 'cpu'
 torch.backends.cudnn.benchmark = True
 
 parser = argparse.ArgumentParser(
@@ -34,10 +34,10 @@ parser = argparse.ArgumentParser(
 default_dataset_dir = Path.home() / ".cache" / "torch" / "datasets"
 
 parser.add_argument("--log-dir", default=Path("logs"), type=Path)
-parser.add_argument("--learning-rate", default=0.001, type=float, help="Learning rate")
+parser.add_argument("--learning-rate", default=0.002, type=float, help="Learning rate")
 parser.add_argument(
     "--batch-size",
-    default=128,
+    default=256,
     type=int,
     help="Number of images within each mini-batch",
 )
@@ -108,15 +108,14 @@ def main(args):
     if args.model == 'MrCNN':
         model = MrCNN(dropout=args.dropout)
     elif args.model == 'MrCNNs':
-        model = MrCNNs(dropout=args.dropout, first_batch_only=True, visualize=True)
+        model = MrCNNs(dropout=args.dropout)
     else:
         raise ValueError(f"Unknown model type: {args.model}")
 
     criterion = nn.BCELoss()
 
-    optimizer = Adam(model.parameters(), lr=args.learning_rate)
+    optimizer = SGD(model.parameters(), lr=args.learning_rate, momentum=0.9, weight_decay=0.0002)
 
-    schedular = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, min_lr=1e-6)
     log_dir = get_summary_writer_log_dir(args)
     print(f"Writing logs to {log_dir}")
 
@@ -129,7 +128,7 @@ def main(args):
         Path(checkpoint_path).mkdir(parents=True, exist_ok=True)
 
     trainer = Trainer(
-        model, train_dataset, val_dataset, criterion, optimizer, summary_writer, device, schedular,
+        model, train_dataset, val_dataset, criterion, optimizer, summary_writer, device,
         checkpoint_path = checkpoint_path,
         checkpoint_frequency= args.checkpoint_frequency,
         args = args
@@ -156,7 +155,6 @@ class Trainer:
             optimizer: Optimizer,
             summary_writer: SummaryWriter,
             device: torch.device,
-            schedular: ReduceLROnPlateau,
             checkpoint_path: str,
             checkpoint_frequency: int,
             args
@@ -169,7 +167,6 @@ class Trainer:
         self.optimizer = optimizer
         self.summary_writer = summary_writer
         self.step = 0
-        self.schedular = schedular
         self.checkpoint_path = checkpoint_path
         self.checkpoint_frequency = checkpoint_frequency
         self.args = args
@@ -196,9 +193,6 @@ class Trainer:
         current_auc = 0
         for epoch in range(start_epoch, epochs):
             self.model.train()
-            # For feature map visulisation:
-            # Reset `first_batch_processed` at the start of each epoch
-            self.model.first_batch_processed = False
             data_load_start_time = time.time()
             total_loss = 0
             total_accuracy = 0
@@ -243,8 +237,7 @@ class Trainer:
             avg_epoch_loss = total_loss / num_batches
             avg_epoch_accuracy = total_accuracy / num_batches
             print(f"epoch: [{epoch + 1}], " f"Average Loss: {avg_epoch_loss:.5f}," f"Average Accuracy: {avg_epoch_accuracy:.2f}")
-                
-            self.schedular.step(metrics=avg_epoch_loss)
+
             self.summary_writer.add_scalar("epoch", epoch, self.step)
 
             # get the validation AUC score
@@ -429,7 +422,7 @@ def get_summary_writer_log_dir(args: argparse.Namespace) -> str:
             f"bs={args.batch_size}_"
             f"lr={args.learning_rate}_"
             f"dropout={args.dropout}_"
-            f"Adam_" +
+            f"Momentum_" +
             f"run_"
     )
     i = 0
