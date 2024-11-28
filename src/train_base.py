@@ -34,7 +34,7 @@ parser = argparse.ArgumentParser(
 default_dataset_dir = Path.home() / ".cache" / "torch" / "datasets"
 
 parser.add_argument("--log-dir", default=Path("logs"), type=Path)
-parser.add_argument("--learning-rate", default=0.002, type=float, help="Learning rate")
+parser.add_argument("--learning-rate", default=0.005, type=float, help="Learning rate")
 parser.add_argument(
     "--batch-size",
     default=256,
@@ -188,6 +188,7 @@ class Trainer:
             args = None
     ):
         self.model.train()
+        total_steps = len(self.train_loader) * epochs
         args = args if args is not None else self.args
         best_auc = 0
         current_auc = 0
@@ -199,6 +200,10 @@ class Trainer:
             num_batches = len(self.train_loader)
             
             for batch in self.train_loader:
+                current_momentum = self.calculate_momentum(self.step, total_steps)
+                for param_group in self.optimizer.param_groups:
+                    param_group['momentum'] = current_momentum
+                # print(f"Current momentum: {current_momentum}")
                 img, label = batch
                 # separate the three inputs, each sampled from different resolution
                 img_400_crop = img[:, 0, :, :, :].to(device)
@@ -307,6 +312,10 @@ class Trainer:
             f"{data_load_time:.5f}, "
             f"step time: {step_time:.5f}"
         )
+
+    def calculate_momentum(self, current_step, total_steps, initial_momentum=0.9, final_momentum=0.99):
+        """Linearly interpolate momentum from initial to final value."""
+        return initial_momentum + (final_momentum - initial_momentum) * (current_step / total_steps)
 
     # summary writer log metrics
     def log_metrics(self, epoch, accuracy, loss, data_load_time, step_time):
