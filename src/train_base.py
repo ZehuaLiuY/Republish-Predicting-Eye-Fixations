@@ -43,7 +43,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--epochs",
-    default=10,
+    default=4,
     type=int,
     help="Number of epochs (passes through the entire dataset) to train for",
 )

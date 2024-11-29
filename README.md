@@ -46,9 +46,9 @@ python main.py --model MrCNNs --epochs 50 --batch-size 128 --learning-rate 0.001
 
 To test a trained model, use the following command:
 ```bash
-python test.py --model_path "./pre_trained_models/MrCNN_best.pth"
+python test.py --model MrCNNs --model_path "./pre_trained_models/MrCNN_best.pth"
 ```
-
+If you want test the MrCNN model, replace `MrCNNs` with `MrCNN`.
 ### Arguments for Extension
 
 | Argument                  | Default Value          | Description                                           |

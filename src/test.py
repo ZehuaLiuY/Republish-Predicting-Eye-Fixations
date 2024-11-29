@@ -24,7 +24,7 @@ parser = argparse.ArgumentParser(
 )
 parser.add_argument(
     '--model',
-    choices=['MrCNN', 'MrCNNs'], default='MrCNN',
+    choices=['MrCNN', 'MrCNNs'], default='MrCNNs',
     help="Choose model type: 'MrCNN' for separate branches or 'MrCNNs' for shared branches"
 )
 
@@ -51,23 +51,16 @@ def main(args):
 
     if args.model == 'MrCNN':
         model = MrCNN(dropout=args.dropout)
-        checkpoint = torch.load(args.model_path, weights_only=True, map_location=device)
-        state_dict = checkpoint.get("model", checkpoint)
-        state_dict = {k: v for k, v in state_dict.items() if k in model.state_dict()}
-
-        model.load_state_dict(state_dict, strict=False)
-
     elif args.model == 'MrCNNs':
         model = MrCNNs(dropout=args.dropout, first_batch_only=False, visualize=False)
-
-        checkpoint = torch.load(args.model_path, weights_only=True, map_location=device)
-        state_dict = checkpoint.get("model", checkpoint)
-        state_dict = {k: v for k, v in state_dict.items() if k in model.state_dict()}
-
-        model.load_state_dict(state_dict, strict=False)
-
     else:
         raise ValueError("Invalid model type")
+
+    checkpoint = torch.load(args.model_path, weights_only=True, map_location=device)
+    state_dict = checkpoint.get("model", checkpoint)
+    state_dict = {k: v for k, v in state_dict.items() if k in model.state_dict()}
+
+    model.load_state_dict(state_dict, strict=False)
     auc, shuffle_auc = validate(model, test_dataset)
 
     print("Test auc score: ", auc )

@@ -203,7 +203,7 @@ class Trainer:
             total_loss = 0
             total_accuracy = 0
             num_batches = len(self.train_loader)
-            
+            total_grad_norm = 0
             for batch in self.train_loader:
                 img, label = batch
                 # separate the three inputs, each sampled from different resolution
@@ -220,6 +220,13 @@ class Trainer:
 
                 # optimising the model
                 loss.backward()
+                grad_norm = 0
+
+                for param in self.model.parameters():
+                    if param.grad is not None:
+                        grad_norm += param.grad.norm(2).item() ** 2
+                grad_norm = grad_norm ** 0.5
+                total_grad_norm += grad_norm
                 self.optimizer.step()
                 self.optimizer.zero_grad()
                 with torch.no_grad():
@@ -234,7 +241,7 @@ class Trainer:
                     self.log_metrics(epoch, accuracy, loss, data_load_time, step_time)
                 if ((self.step + 1) % print_frequency) == 0:
                     self.print_metrics(epoch, accuracy, loss, data_load_time, step_time)
-
+                self.summary_writer.add_scalar("gradient_norm", grad_norm, self.step)
                 self.step += 1
 
                 data_load_start_time = time.time()
