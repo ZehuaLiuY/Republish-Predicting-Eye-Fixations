@@ -5,17 +5,16 @@ from multiprocessing import cpu_count
 import torch
 import torch.backends.cudnn
 from torch import nn
-from torch.optim import Adam
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.optim.optimizer import Optimizer
+from torch.optim import SGD
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from dataset import MIT, load_ground_truth
 import argparse
 from pathlib import Path
 
-from MrCNN import MrCNN
-from MrCNNs import MrCNNs
+from MrCNNs_base import MrCNNs
 
 from metrics import calculate_auc, calculate_auc_with_shuffle
 
@@ -23,8 +22,9 @@ import matplotlib.pyplot as plt
 import torch.nn.functional as F
 from tqdm import tqdm
 
+from src.MrCNN import MrCNN
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# device = 'cpu'
 torch.backends.cudnn.benchmark = True
 
 parser = argparse.ArgumentParser(
@@ -34,16 +34,16 @@ parser = argparse.ArgumentParser(
 default_dataset_dir = Path.home() / ".cache" / "torch" / "datasets"
 
 parser.add_argument("--log-dir", default=Path("logs"), type=Path)
-parser.add_argument("--learning-rate", default=0.001, type=float, help="Learning rate")
+parser.add_argument("--learning-rate", default=0.005, type=float, help="Learning rate")
 parser.add_argument(
     "--batch-size",
-    default=128,
+    default=256,
     type=int,
     help="Number of images within each mini-batch",
 )
 parser.add_argument(
     "--epochs",
-    default=20,
+    default=4,
     type=int,
     help="Number of epochs (passes through the entire dataset) to train for",
 )
@@ -108,15 +108,14 @@ def main(args):
     if args.model == 'MrCNN':
         model = MrCNN(dropout=args.dropout)
     elif args.model == 'MrCNNs':
-        model = MrCNNs(dropout=args.dropout, first_batch_only=True, visualize=True)
+        model = MrCNNs(dropout=args.dropout)
     else:
         raise ValueError(f"Unknown model type: {args.model}")
 
     criterion = nn.BCELoss()
 
-    optimizer = Adam(model.parameters(), lr=args.learning_rate)
+    optimizer = SGD(model.parameters(), lr=args.learning_rate, momentum=0.9, weight_decay=0.0002)
 
-    schedular = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, min_lr=1e-6)
     log_dir = get_summary_writer_log_dir(args)
     print(f"Writing logs to {log_dir}")
 
@@ -124,12 +123,12 @@ def main(args):
         str(log_dir),
         flush_secs=5
     )
-    checkpoint_path = f'./checkpoint/{args.model}_run_{log_dir.split("_")[-1]}'
+    checkpoint_path = f'./checkpoint/{args.model}_base_run_{log_dir.split("_")[-1]}'
     if not Path(checkpoint_path).exists():
         Path(checkpoint_path).mkdir(parents=True, exist_ok=True)
 
     trainer = Trainer(
-        model, train_dataset, val_dataset, criterion, optimizer, summary_writer, device, schedular,
+        model, train_dataset, val_dataset, criterion, optimizer, summary_writer, device,
         checkpoint_path = checkpoint_path,
         checkpoint_frequency= args.checkpoint_frequency,
         args = args
@@ -156,7 +155,6 @@ class Trainer:
             optimizer: Optimizer,
             summary_writer: SummaryWriter,
             device: torch.device,
-            schedular: ReduceLROnPlateau,
             checkpoint_path: str,
             checkpoint_frequency: int,
             args
@@ -169,7 +167,6 @@ class Trainer:
         self.optimizer = optimizer
         self.summary_writer = summary_writer
         self.step = 0
-        self.schedular = schedular
         self.checkpoint_path = checkpoint_path
         self.checkpoint_frequency = checkpoint_frequency
         self.args = args
@@ -191,20 +188,22 @@ class Trainer:
             args = None
     ):
         self.model.train()
+        total_steps = len(self.train_loader) * epochs
         args = args if args is not None else self.args
         best_auc = 0
         current_auc = 0
         for epoch in range(start_epoch, epochs):
             self.model.train()
-            # For feature map visulisation:
-            # Reset `first_batch_processed` at the start of each epoch
-            self.model.first_batch_processed = False
             data_load_start_time = time.time()
             total_loss = 0
             total_accuracy = 0
             num_batches = len(self.train_loader)
-            total_grad_norm = 0
+            
             for batch in self.train_loader:
+                current_momentum = self.calculate_momentum(self.step, total_steps)
+                for param_group in self.optimizer.param_groups:
+                    param_group['momentum'] = current_momentum
+                # print(f"Current momentum: {current_momentum}")
                 img, label = batch
                 # separate the three inputs, each sampled from different resolution
                 img_400_crop = img[:, 0, :, :, :].to(device)
@@ -220,13 +219,6 @@ class Trainer:
 
                 # optimising the model
                 loss.backward()
-                grad_norm = 0
-
-                for param in self.model.parameters():
-                    if param.grad is not None:
-                        grad_norm += param.grad.norm(2).item() ** 2
-                grad_norm = grad_norm ** 0.5
-                total_grad_norm += grad_norm
                 self.optimizer.step()
                 self.optimizer.zero_grad()
                 with torch.no_grad():
@@ -241,7 +233,7 @@ class Trainer:
                     self.log_metrics(epoch, accuracy, loss, data_load_time, step_time)
                 if ((self.step + 1) % print_frequency) == 0:
                     self.print_metrics(epoch, accuracy, loss, data_load_time, step_time)
-                self.summary_writer.add_scalar("gradient_norm", grad_norm, self.step)
+
                 self.step += 1
 
                 data_load_start_time = time.time()
@@ -250,8 +242,7 @@ class Trainer:
             avg_epoch_loss = total_loss / num_batches
             avg_epoch_accuracy = total_accuracy / num_batches
             print(f"epoch: [{epoch + 1}], " f"Average Loss: {avg_epoch_loss:.5f}," f"Average Accuracy: {avg_epoch_accuracy:.2f}")
-                
-            self.schedular.step(metrics=avg_epoch_loss)
+
             self.summary_writer.add_scalar("epoch", epoch, self.step)
 
             # get the validation AUC score
@@ -321,6 +312,10 @@ class Trainer:
             f"{data_load_time:.5f}, "
             f"step time: {step_time:.5f}"
         )
+
+    def calculate_momentum(self, current_step, total_steps, initial_momentum=0.9, final_momentum=0.99):
+        """Linearly interpolate momentum from initial to final value."""
+        return initial_momentum + (final_momentum - initial_momentum) * (current_step / total_steps)
 
     # summary writer log metrics
     def log_metrics(self, epoch, accuracy, loss, data_load_time, step_time):
@@ -436,7 +431,8 @@ def get_summary_writer_log_dir(args: argparse.Namespace) -> str:
             f"bs={args.batch_size}_"
             f"lr={args.learning_rate}_"
             f"dropout={args.dropout}_"
-            f"Adam_" +
+            f"Momentum_" +
+            f"base_"
             f"run_"
     )
     i = 0
