@@ -70,17 +70,19 @@ class MrCNNs(nn.Module):
             self.first_batch_processed = True
         else:
             self.visualize = False
-            
+
         # Reset first_batch_processed flag every epoch
         self.first_batch_processed = False
 
-        branch1_output = self.forward_branch(input1, input1, self.conv1, self.bn1, self.conv2, self.conv3)
-        branch2_output = self.forward_branch(input2, input2, self.conv1, self.bn1, self.conv2, self.conv3)
-        branch3_output = self.forward_branch(input3, input3, self.conv1, self.bn1, self.conv2, self.conv3)
+        # Process each branch and collect activations
+        branch1_output, branch1_activations = self.forward_branch(input1, input1, self.conv1, self.bn1, self.conv2, self.conv3)
+        branch2_output, branch2_activations = self.forward_branch(input2, input2, self.conv1, self.bn1, self.conv2, self.conv3)
+        branch3_output, branch3_activations = self.forward_branch(input3, input3, self.conv1, self.bn1, self.conv2, self.conv3)
 
+        activations.extend([branch1_activations, branch2_activations, branch3_activations])
 
         self.first_batch_processed = True
-
+        # Combine the outputs of the branches
         combined = torch.cat((branch1_output, branch2_output, branch3_output), dim=1)
         combined = F.relu(self.fc_combined(combined))
         combined = self.dropout(combined)
