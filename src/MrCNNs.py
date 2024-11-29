@@ -14,6 +14,7 @@ class MrCNNs(nn.Module):
 
         # Convolutional layers for each branch
         self.conv1 = nn.Conv2d(3, 96, kernel_size=7, stride=1, padding=0)
+        self.bn1 = nn.BatchNorm2d(96)
         self.conv2 = nn.Conv2d(96, 160, kernel_size=3, stride=1, padding=0)
         self.conv3 = nn.Conv2d(160, 288, kernel_size=3, stride=1, padding=0)
 
@@ -28,14 +29,15 @@ class MrCNNs(nn.Module):
         self.fc_combined = nn.Linear(512 * 3, 512)
         self.output = nn.Linear(512, 1)
 
-    def forward_branch(self, x, original_input, conv1, conv2, conv3):
-        activations = {}  # Used to store the average activation value of each layer
-        with torch.no_grad():
-            norm = conv1.weight.norm(2, dim=(1, 2, 3), keepdim=True)
-            desired_norm = torch.clamp(norm, max=0.1)
-            conv1.weight = nn.Parameter(conv1.weight * desired_norm / (norm + 1e-8))
 
-        x = F.relu(conv1(x))
+    def forward_branch(self, x, original_input, conv1, bn1, conv2, conv3):
+        # with torch.no_grad():
+        #     norm = conv1.weight.norm(2, dim=(1, 2, 3), keepdim=True)
+        #     desired_norm = torch.clamp(norm, max=0.1)
+        #     conv1.weight = nn.Parameter(conv1.weight * desired_norm / (norm + 1e-8))
+        activations = {}
+
+        x = F.relu(bn1(conv1(x)))
         if self.visualize and not self.first_batch_processed:
             self.visualize_feature_map(x, original_input, layer_name="conv1", num_feature_maps=3)
         activations["conv1"] = x.mean().item()
@@ -71,12 +73,11 @@ class MrCNNs(nn.Module):
             
         # Reset first_batch_processed flag every epoch
         self.first_batch_processed = False
-        branch1_output, branch1_activations = self.forward_branch(input1, input1, self.conv1, self.conv2, self.conv3)
-        branch2_output, branch2_activations = self.forward_branch(input2, input2, self.conv1, self.conv2, self.conv3)
-        branch3_output, branch3_activations = self.forward_branch(input3, input3, self.conv1, self.conv2, self.conv3)
 
-        if return_activations:
-            activations.extend([branch1_activations, branch2_activations, branch3_activations])
+        branch1_output = self.forward_branch(input1, input1, self.conv1, self.bn1, self.conv2, self.conv3)
+        branch2_output = self.forward_branch(input2, input2, self.conv1, self.bn1, self.conv2, self.conv3)
+        branch3_output = self.forward_branch(input3, input3, self.conv1, self.bn1, self.conv2, self.conv3)
+
 
         self.first_batch_processed = True
 
