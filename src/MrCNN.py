@@ -7,14 +7,17 @@ class MrCNN(nn.Module):
         super().__init__()
         ## Convolutional layers for each branch
         self.branch1_conv1 = nn.Conv2d(3, 96, kernel_size=7, stride=1, padding=0)
+        self.branch1_bn1 = nn.BatchNorm2d(96)
         self.branch1_conv2 = nn.Conv2d(96, 160, kernel_size=3, stride=1, padding=0)
         self.branch1_conv3 = nn.Conv2d(160, 288, kernel_size=3, stride=1, padding=0)
 
         self.branch2_conv1 = nn.Conv2d(3, 96, kernel_size=7, stride=1, padding=0)
+        self.branch2_bn1 = nn.BatchNorm2d(96)
         self.branch2_conv2 = nn.Conv2d(96, 160, kernel_size=3, stride=1, padding=0)
         self.branch2_conv3 = nn.Conv2d(160, 288, kernel_size=3, stride=1, padding=0)
 
         self.branch3_conv1 = nn.Conv2d(3, 96, kernel_size=7, stride=1, padding=0)
+        self.branch3_bn1 = nn.BatchNorm2d(96)
         self.branch3_conv2 = nn.Conv2d(96, 160, kernel_size=3, stride=1, padding=0)
         self.branch3_conv3 = nn.Conv2d(160, 288, kernel_size=3, stride=1, padding=0)
 
@@ -42,15 +45,15 @@ class MrCNN(nn.Module):
 
         self.output = nn.Linear(512, 1)
 
-    def forward_branch(self, x, conv1, conv2, conv3):
+    def forward_branch(self, x, conv1, bn1, conv2, conv3):
         # # Apply L2 norm constraint to the first convolutional layer
         # # reference: paper section 3.2
-        with torch.no_grad():
-            norm = conv1.weight.norm(2, dim=(1, 2, 3), keepdim=True)
-            desired_norm = torch.clamp(norm, max=0.1)
-            conv1.weight *= desired_norm / (norm + 1e-8)
+        # with torch.no_grad():
+        #     norm = conv1.weight.norm(2, dim=(1, 2, 3), keepdim=True)
+        #     desired_norm = torch.clamp(norm, max=0.1)
+        #     conv1.weight *= desired_norm / (norm + 1e-8)
 
-        x = F.relu(conv1(x))
+        x = F.relu(bn1(conv1(x)))
         x = self.pool(x)
         x = F.relu(conv2(x))
         x = self.pool(x)
@@ -66,9 +69,9 @@ class MrCNN(nn.Module):
         return x
 
     def forward(self, input1, input2, input3):
-        branch1_output = self.forward_branch(input1, self.branch1_conv1, self.branch1_conv2, self.branch1_conv3)
-        branch2_output = self.forward_branch(input2, self.branch2_conv1, self.branch2_conv2, self.branch2_conv3)
-        branch3_output = self.forward_branch(input3, self.branch3_conv1, self.branch3_conv2, self.branch3_conv3)
+        branch1_output = self.forward_branch(input1, self.branch1_conv1, self.branch1_bn1, self.branch1_conv2, self.branch1_conv3)
+        branch2_output = self.forward_branch(input2, self.branch2_conv1, self.branch2_bn1, self.branch2_conv2, self.branch2_conv3)
+        branch3_output = self.forward_branch(input3, self.branch3_conv1, self.branch3_bn1, self.branch3_conv2, self.branch3_conv3)
 
         combined = torch.cat((branch1_output, branch2_output, branch3_output), dim=1)
 
