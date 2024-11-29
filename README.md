@@ -1,4 +1,4 @@
-# Republish-Predicting-Eye-Fixations 
+# Republish-Predicting-Eye-Fixations
 COMSM0045 Applied Deep Learning Coursework
 
 ## Predicting Eye Fixations using MrCNN/MrCNNs
@@ -12,7 +12,8 @@ This project implements a CNN to predict eye fixations based on multi-resolution
 - **Performance Metrics:** Calculates AUC and Shuffled AUC for evaluation.
 - **Feature Visualisation:** Supports feature map visualisation during training (for the first batch).
 - **Logging and Checkpointing:** Logs metrics to TensorBoard and saves model checkpoints.
-- **Visualise the feature maps:** Visualise the feature maps of the first batch of the training data.
+- **Visualise the Feature Maps:** Visualise the feature maps of the first batch of the training data.
+- **Base and Extension Support:** Run either the base implementation (`train_base.py`) or the extension (`main.py`) depending on your requirements.
 
 ## Requirements
 
@@ -25,35 +26,42 @@ conda env create -f dl_env.yml
 
 - **Training Dataset:** Place the training dataset at `../dataset/train_data.pth.tar`.
 - **Validation Dataset:** Place the validation dataset at `../dataset/val_data.pth.tar`.
-- **Validation Ground Truth:** If not already present, put `ALLFIXATIONMAPS` folder under the dataset folder. it will be automatically loaded from `../dataset/ALLFIXATIONMAPS` and saved to `../dataset/test_ground_truth` and `../dataset/val_ground_truth`.
+- **Validation Ground Truth:** If not already present, put `ALLFIXATIONMAPS` folder under the dataset folder. It will be automatically loaded from `../dataset/ALLFIXATIONMAPS` and saved to `../dataset/test_ground_truth` and `../dataset/val_ground_truth`.
 
 ## Usage
 
 ### Training
 
-Run the training script with the desired parameters:
+For the **base implementation**, use:
 ```bash
-python main.py --model MrCNNs --epochs 50 --batch-size 128 --learning-rate 0.001
+python train_base.py
 ```
 
-### Arguments
-
-| Argument               | Default Value          | Description                                           |
-|------------------------|------------------------|-------------------------------------------------------|
-| `--model`              | `MrCNN`               | Model type (`MrCNN` or `MrCNNs`).                     |                          |
-| `--learning-rate`      | `0.001`               | Learning rate for the optimizer.                     |
-| `--batch-size`         | `128`                 | Number of images per mini-batch.                     |
-| `--epochs`             | `20`                  | Number of epochs for training.                       |
-| `--val-frequency`      | `1`                   | Validate the model every N epochs.                   |
-| `--checkpoint-frequency` | `5`                | Save model checkpoints every N epochs.               |
-| `-j` or `--worker-count` | System CPU Count    | Number of worker processes for data loading.         |
-
-
-### Example Command
-
+For the **extension**, run the training script with the desired parameters:
 ```bash
-python main.py --model MrCNNs --epochs 20 --batch-size 64 --learning-rate 0.0005
+python main.py --model MrCNNs --epochs 50 --batch-size 128 --learning-rate 0.001 --dropout 0.5
 ```
+
+### Testing
+
+To test a trained model, use the following command:
+```bash
+python test.py --model_path "./pre_trained_models/MrCNN_best.pth"
+```
+
+### Arguments for Extension
+
+| Argument                  | Default Value          | Description                                           |
+|---------------------------|------------------------|-------------------------------------------------------|
+| `--model`                 | `MrCNN`               | Model type (`MrCNN` or `MrCNNs`).                    |
+| `--learning-rate`         | `0.001`               | Learning rate for the optimizer.                     |
+| `--batch-size`            | `128`                 | Number of images per mini-batch.                     |
+| `--epochs`                | `20`                  | Number of epochs for training.                       |
+| `--val-frequency`         | `1`                   | Validate the model every N epochs.                   |
+| `--checkpoint-frequency`  | `5`                   | Save model checkpoints every N epochs.               |
+| `-j` or `--worker-count`  | System CPU Count      | Number of worker processes for data loading.         |
+| `--dropout`               | `0.5`                 | Dropout rate used in the model to prevent overfitting. |
+
 
 ### Logging and Visualisation
 
@@ -72,7 +80,8 @@ Validation is performed during training at the specified frequency (`--val-frequ
 
 ## Code Structure
 
-- `main.py`: Main training and validation script.
+- `train_base.py`: Base implementation for training.
+- `main.py`: Extended training and validation script.
 - `MrCNN.py`: Definition of the `MrCNN` model.
 - `MrCNNs.py`: Definition of the `MrCNNs` model.
 - `dataset.py`: Dataset class (`MIT`) and helper functions for loading data.
@@ -82,3 +91,12 @@ Validation is performed during training at the specified frequency (`--val-frequ
 ## Model Saving
 
 After training, the best model is saved as `best.pth` in the checkpoint directory. The final model is also saved as `final_model.pth`.
+
+## Testing Pre-trained Models
+
+To test a pre-trained model, use the `test.py` script. Example:
+```bash
+python test.py --model_path "./pre_trained_models/MrCNN_best.pth"
+```
+
+This will load the pre-trained model from the specified path and evaluate its performance on the test dataset.
