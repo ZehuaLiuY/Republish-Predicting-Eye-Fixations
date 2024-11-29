@@ -10,10 +10,11 @@ This project implements a CNN to predict eye fixations based on multi-resolution
 - **Multi-resolution Input:** The models process inputs are three samples from different resolutions 400x400, 250x250, and 150x150 respectively.
 - **Two Model Architectures:** Choose between `MrCNN` or `MrCNNs` for different use cases.
 - **Performance Metrics:** Calculates AUC and Shuffled AUC for evaluation.
+- **Tensorboad Logging:** Logs training metrics to TensorBoard, including loss, accuracy, gradient norm, AUC and Shuffled AUC.
 - **Feature Visualisation:** Supports feature map visualisation during training (for the first batch).
 - **Logging and Checkpointing:** Logs metrics to TensorBoard and saves model checkpoints.
-- **Visualise the Feature Maps:** Visualise the feature maps of the first batch of the training data.
-- **Base and Extension Support:** Run either the base implementation (`train_base.py`) or the extension (`main.py`) depending on your requirements.
+- **Activation Value:** Visualise the activation value of the first batch of the training data.
+- **Base and Extension Support:** Run either the base implementation (`train_base.py`) or the extension (`train.py`) depending on your requirements.
 
 ## Requirements
 
@@ -37,9 +38,9 @@ For the **base implementation**, use:
 python train_base.py
 ```
 
-For the **extension**, run the training script with the desired parameters:
+For the all **extension**, run the training script with the desired parameters:
 ```bash
-python main.py --model MrCNNs --epochs 50 --batch-size 128 --learning-rate 0.001 --dropout 0.5
+python main.py --model MrCNNs --epochs 20 --batch-size 128 --learning-rate 0.001 --dropout 0.5
 ```
 
 ### Testing
@@ -49,7 +50,8 @@ To test a trained model, use the following command:
 python test.py --model MrCNNs --model_path "./pre_trained_models/MrCNN_best.pth"
 ```
 If you want test the MrCNN model, replace `MrCNNs` with `MrCNN`.
-### Arguments for Extension
+
+### Arguments for Training
 
 | Argument                  | Default Value          | Description                                           |
 |---------------------------|------------------------|-------------------------------------------------------|
@@ -96,7 +98,7 @@ After training, the best model is saved as `best.pth` in the checkpoint director
 
 To test a pre-trained model, use the `test.py` script. Example:
 ```bash
-python test.py --model_path "./pre_trained_models/MrCNN_best.pth"
+python test.py --model MrCNN --model_path "./pre_trained_models/MrCNN_best.pth"
 ```
 
 This will load the pre-trained model from the specified path and evaluate its performance on the test dataset.
